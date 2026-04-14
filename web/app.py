@@ -8,7 +8,7 @@ def home():
     return "OK", 200
 
 def run():
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=10001)
 
 def keep_alive():
     t = Thread(target=run)
