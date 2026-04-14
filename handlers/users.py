@@ -46,15 +46,13 @@ def send_welcome(message) -> None:
     username = get_bot_username()
     buttons  = []
 
-    if message.chat.type != "private":
-        if username:
-            buttons.append(ui_btn("تَذَكُّر | Tazakkor",
-                                  url=f"https://t.me/{username}", style="success"))
-    else:
-        if username:
-            buttons.append(ui_btn("أضفني لمجموعتك",
-                                  url=f"https://t.me/{username}?startgroup=true",
-                                  style="success"))
+    
+    if username:
+        buttons.append(ui_btn("تَذَكُّر | Tazakkor",
+                                url=f"https://t.me/{username}", style="success"))
+        buttons.append(ui_btn("أضفني لمجموعتك",
+                                url=f"https://t.me/{username}?startgroup=true",
+                                style="primary"))
 
     markup   = build_keyboard(buttons, [1] * len(buttons)) if buttons else None
     photo_id = get_bot_photo_id()
@@ -66,7 +64,7 @@ def send_welcome(message) -> None:
     }
     try:
         if photo_id:
-            bot.send_photo(message.chat.id, photo_id, **kwargs)
+            bot.send_photo(message.chat.id, photo_id, **kwargs, has_spoiler=True,)
         else:
             bot.send_message(message.chat.id, caption,
                              parse_mode="HTML", reply_markup=markup,

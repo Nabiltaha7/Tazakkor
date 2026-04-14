@@ -34,7 +34,7 @@ def create_groups_tables() -> None:
         name               TEXT    NOT NULL DEFAULT 'Unknown',
         joined_at          INTEGER NOT NULL DEFAULT (strftime('%s','now')),
         tz_offset          INTEGER NOT NULL DEFAULT 180,
-        azkar_enabled      INTEGER NOT NULL DEFAULT 0,
+        azkar_enabled      INTEGER NOT NULL DEFAULT 1,
         azkar_interval     INTEGER NOT NULL DEFAULT 15,
         azkar_rem_morning  INTEGER DEFAULT NULL,
         azkar_rem_evening  INTEGER DEFAULT NULL,

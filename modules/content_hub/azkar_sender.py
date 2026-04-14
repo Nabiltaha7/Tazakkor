@@ -52,7 +52,7 @@ def send_periodic_azkar():
             if not row:
                 continue
 
-            bot.send_message(tg_group_id, f"📿\n\n{row['content']}", parse_mode="HTML")
+            bot.send_message(tg_group_id, f"📿<b>\n\n{row['content']}</b>", parse_mode="HTML")
             _last_sent[tg_group_id] = now
         except Exception as e:
             print(f"[AzkarSender] فشل الإرسال للمجموعة {tg_group_id}: {e}")
