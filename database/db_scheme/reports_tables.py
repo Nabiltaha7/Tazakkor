@@ -157,7 +157,7 @@ def _seed_developers() -> None:
 
     cursor.execute(
         "INSERT OR IGNORE INTO bot_constants (name, value, description) VALUES (?, ?, ?)",
-        ("dev_group_id", "-1003505563946", "معرف مجموعة المطورين")
+        ("dev_group_id", "-1003981603214", "معرف مجموعة المطورين")
     )
 
     conn.commit()

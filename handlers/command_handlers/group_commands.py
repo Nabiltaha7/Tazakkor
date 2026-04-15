@@ -36,11 +36,6 @@ def handle_group_commands(message, normalized_text: str, text: str) -> bool:
             open_azkar_admin(message)
             return True
 
-        if normalized_text in ("إنشاء منشور", "انشاء منشور", "new post"):
-            from modules.post_creator import open_post_creator
-            open_post_creator(message)
-            return True
-
         if normalized_text == "تحديث قاعدة البيانات":
             from handlers.group_admin.admin_commands import update_db
             update_db(message)

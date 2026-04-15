@@ -258,25 +258,6 @@ def send_message(chat_id: int, text: str, parse_html: bool = True,
         print(f"[send_message] error: {e}")
 
 
-def build_colored_buttons(buttons_data: list, cols: int = 1):
-    """Builds an InlineKeyboardMarkup from a list of button dicts."""
-    from utils.keyboards import ui_btn, build_keyboard as _kb
-    btns = []
-    for b in buttons_data:
-        if b.get("url"):
-            btns.append(ui_btn(b["label"], url=b["url"], style=b.get("style", "primary")))
-        elif b.get("cb"):
-            btns.append(ui_btn(b["label"], action=b["cb"], style=b.get("style", "primary")))
-    if not btns:
-        return None
-    layout = []
-    rem    = len(btns)
-    while rem > 0:
-        layout.append(min(cols, rem))
-        rem -= cols
-    return _kb(btns, layout)
-
-
 def get_target_user_id(message, text: str = None):
     """Delegates to utils.user_resolver — single source of truth."""
     from utils.user_resolver import get_target_user_id as _resolve

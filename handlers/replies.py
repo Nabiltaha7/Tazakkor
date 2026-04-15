@@ -263,9 +263,6 @@ def _handle_input_states(message) -> bool:
     from modules.azkar.custom_zikr import handle_custom_zikr_input
     if handle_custom_zikr_input(message): return True
 
-    from modules.post_creator import handle_post_creator_input
-    if handle_post_creator_input(message): return True
-
     # Ticket message input (text only, awaiting state)
     ts = StateManager.get(uid, cid)
     if ts and ts.get("type") == "ticket_flow" and ts.get("step") == "await_msg":

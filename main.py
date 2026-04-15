@@ -54,16 +54,8 @@ def text_handler(message):
     "video_note", "document", "sticker", "animation",
 ])
 def media_handler(message):
-    """
-    Routes media messages.
-    Checked in order:
-      1. post_creator photo input (developer flow)
-      2. General dispatcher (tickets, followups, etc.)
-    """
+    """Routes media messages to the general dispatcher."""
     try:
-        from modules.post_creator import handle_post_creator_photo
-        if handle_post_creator_photo(message):
-            return
         receive_responses(message)
     except Exception as e:
         print(f"[media_handler] {e}\n{traceback.format_exc()}")
