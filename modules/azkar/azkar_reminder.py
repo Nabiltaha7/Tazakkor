@@ -1,24 +1,34 @@
 """
 modules/azkar/azkar_reminder.py
 ─────────────────────────────────
-يُرسَل من المُجدوِل كل 5 دقائق.
-يتحقق من تذكيرات الأذكار المجدولة للمجموعات ويرسل رسالة تفاعلية.
+Group azkar reminders — fires from the scheduler every 5 minutes.
 
-زر "عرض الذكر" في الرسالة:
-  - يفتح محادثة خاصة مع البوت
-  - يرسل للمستخدم جلسة الأذكار المناسبة
+System B: Fixed-time azkar reminders per group.
+  Each group stores a local hour (0–23) for each azkar type:
+    azkar_rem_morning  → 🌅 أذكار الصباح
+    azkar_rem_evening  → 🌙 أذكار المساء
+    azkar_rem_sleep    → 😴 أذكار النوم
+    azkar_rem_wakeup   → ☀️ أذكار الاستيقاظ
+
+  The scheduler calls fire_group_azkar_reminders(utc_hour, utc_minute)
+  every 5 minutes. For each group, the stored local hour is converted
+  to UTC using the group's tz_offset (stored in minutes, e.g. 180 = UTC+3).
+  A reminder fires when UTC hour matches and has not been sent yet this hour.
+
+Duplicate prevention:
+  _sent_log: dict[(group_id, col, date_hour_str)] → True
+  Cleared automatically — keys include the date+hour so they expire naturally.
 """
 from core.bot import bot
 from database.db_queries.groups_queries import get_groups_with_reminder
 from utils.pagination import btn, register_action, edit_ui, send_ui
-from utils.pagination.buttons import build_keyboard
 from utils.helpers import get_lines
 from database.db_queries.azkar_queries import (
     add_azkar_reminder, delete_azkar_reminder,
     get_user_azkar_reminders, count_user_azkar_reminders,
 )
 
-# أنواع الأذكار: (عمود_التذكير, zikr_type, اسم_عربي, أمر_المستخدم)
+# ── Azkar types: (db_column, zikr_type, arabic_label, user_command) ──────────
 _REMINDER_TYPES = [
     ("azkar_rem_morning", 0, "أذكار الصباح",    "أذكار الصباح"),
     ("azkar_rem_evening", 1, "أذكار المساء",    "أذكار المساء"),
@@ -28,61 +38,121 @@ _REMINDER_TYPES = [
 
 _ICONS = {0: "🌅", 1: "🌙", 2: "😴", 3: "☀️"}
 
+# ── Sent-log: prevents duplicate sends within the same UTC hour ───────────────
+# Key: (group_id, col, "YYYY-MM-DD HH") — expires naturally as the hour changes
+_sent_log: dict[tuple, bool] = {}
+
+
+def _sent_key(group_id: int, col: str, utc_hour: int) -> tuple:
+    """Generates a dedup key scoped to the current UTC date+hour."""
+    from datetime import datetime, timezone
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return (group_id, col, f"{date_str} {utc_hour:02d}")
+
+
+def _prune_sent_log(utc_hour: int) -> None:
+    """Removes stale entries from _sent_log (older than current hour)."""
+    from datetime import datetime, timezone
+    current_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d") + f" {utc_hour:02d}"
+    stale = [k for k in _sent_log if not str(k[2]).startswith(current_prefix[:13])]
+    for k in stale:
+        del _sent_log[k]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Main entry point — called by scheduler every 5 minutes
+# ══════════════════════════════════════════════════════════════════════════════
 
 def fire_group_azkar_reminders(utc_hour: int, utc_minute: int) -> None:
     """
-    يُشغَّل كل 5 دقائق من المُجدوِل.
-    يرسل تذكيرات الأذكار للمجموعات التي حان وقتها.
+    Called every 5 minutes by the scheduler.
+    Sends azkar reminders to groups whose configured local hour matches now.
+
+    NOTE: We do NOT gate on utc_minute == 0.
+    The scheduler fires every 5 min (at :00, :05, :10 ... or offset variants).
+    Duplicate prevention is handled by _sent_log keyed on (group, col, date+hour).
+    This guarantees delivery within the first 5-minute window of the target hour.
     """
-    # نتحقق فقط عند الدقيقة 0 من كل ساعة (التذكيرات مضبوطة على ساعات كاملة)
-    if utc_minute != 0:
-        return
+    _prune_sent_log(utc_hour)
 
     for col, zikr_type, label, command in _REMINDER_TYPES:
         try:
-            _fire_type(col, zikr_type, label, command, utc_hour)
+            _fire_type(col, zikr_type, label, command, utc_hour, utc_minute)
         except Exception as e:
-            print(f"[AzkarReminder] خطأ في {col}: {e}")
+            import traceback
+            print(f"[AZKAR_CHECK] ❌ Error processing {col}: {e}")
+            traceback.print_exc()
 
 
 def _fire_type(col: str, zikr_type: int, label: str, command: str,
-               utc_hour: int) -> None:
-    """يرسل تذكير نوع أذكار واحد لجميع المجموعات المستحقة."""
+               utc_hour: int, utc_minute: int) -> None:
+    """Checks all groups for a single azkar type and sends if due."""
     groups = get_groups_with_reminder(col)
-    for g in groups:
-        tg_group_id = g["group_id"]
-        tz_offset   = g.get("tz_offset") or 180   # افتراضي +3 (اليمن)
-        local_hour  = (utc_hour + tz_offset // 60) % 24
 
-        if local_hour != g["hour"]:
+    if not groups:
+        return
+
+    for g in groups:
+        group_id   = g["group_id"]
+        # tz_offset is stored in MINUTES (e.g. 180 = UTC+3, 330 = UTC+5:30)
+        tz_minutes = g.get("tz_offset") or 180
+        target_local_hour = g["hour"]   # the hour admin configured (local time)
+
+        # Convert current UTC time to group's local time
+        utc_total_minutes   = utc_hour * 60 + utc_minute
+        local_total_minutes = (utc_total_minutes + tz_minutes) % (24 * 60)
+        local_hour          = local_total_minutes // 60
+
+        print(
+            f"[AZKAR_CHECK] group={group_id} col={col} "
+            f"utc={utc_hour:02d}:{utc_minute:02d} "
+            f"tz_offset={tz_minutes}min "
+            f"local={local_hour:02d}:xx "
+            f"target={target_local_hour:02d}:00"
+        )
+
+        if local_hour != target_local_hour:
+            print(f"[AZKAR_SKIPPED] group={group_id} col={col} — "
+                  f"local hour {local_hour} ≠ target {target_local_hour}")
             continue
 
-        _send_reminder_message(tg_group_id, zikr_type, label, command)
+        # Dedup: only send once per UTC hour per group per type
+        key = _sent_key(group_id, col, utc_hour)
+        if key in _sent_log:
+            print(f"[AZKAR_SKIPPED] group={group_id} col={col} — "
+                  f"already sent this hour (key={key})")
+            continue
 
+        print(f"[AZKAR_MATCH] group={group_id} col={col} "
+              f"local={local_hour:02d}:00 — sending {label}")
+
+        _sent_log[key] = True
+        _send_reminder_message(group_id, zikr_type, label, command)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Message sender
+# ══════════════════════════════════════════════════════════════════════════════
 
 def _send_reminder_message(tg_group_id: int, zikr_type: int,
                             label: str, command: str) -> None:
-    """يرسل رسالة التذكير في المجموعة مع زر تفاعلي، ويثبّتها إن أمكن."""
+    """Sends the azkar reminder message to a group with a deep-link button."""
     icon = _ICONS.get(zikr_type, "📿")
     text = (
         f"{icon} <b>حان وقت {label}</b>\n\n"
         f"اضغط الزر أدناه لعرض الأذكار في محادثتك الخاصة مع البوت."
     )
 
-    # الزر يفتح محادثة خاصة مع البوت ويرسل الأمر تلقائياً
+    markup = None
     try:
-        bot_info  = bot.get_me()
-        bot_uname = bot_info.username or ""
+        bot_info    = bot.get_me()
+        bot_uname   = bot_info.username or ""
         start_param = f"azkar_{zikr_type}"
-        url = f"https://t.me/{bot_uname}?start={start_param}"
-    except Exception:
-        url = None
-
-    if url:
+        url         = f"https://t.me/{bot_uname}?start={start_param}"
         from utils.keyboards import ui_btn, build_keyboard as _bk
         markup = _bk([ui_btn(f"{icon} عرض {label}", url=url)], [1])
-    else:
-        markup = None
+    except Exception as e:
+        print(f"[AZKAR_SENT] ⚠️ Could not build button for group {tg_group_id}: {e}")
 
     try:
         sent = bot.send_message(
@@ -90,37 +160,49 @@ def _send_reminder_message(tg_group_id: int, zikr_type: int,
             parse_mode="HTML",
             reply_markup=markup,
         )
-        # محاولة تثبيت الرسالة
+        print(f"[AZKAR_SENT] ✅ group={tg_group_id} type={zikr_type} ({label})")
+
+        # Attempt to pin — silent fail if no permission
         try:
             bot.pin_chat_message(tg_group_id, sent.message_id,
                                  disable_notification=True)
         except Exception:
-            pass  # البوت لا يملك صلاحية التثبيت — تجاهل صامت
-    except Exception as e:
-        print(f"[AzkarReminder] فشل الإرسال للمجموعة {tg_group_id}: {e}")
+            pass
 
+    except Exception as e:
+        print(f"[AZKAR_SENT] ❌ group={tg_group_id} type={zikr_type} — {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Personal user reminders (System A — individual users, not groups)
+# ══════════════════════════════════════════════════════════════════════════════
 
 def _fire_reminder(reminder: dict) -> None:
     """
-    واجهة متوافقة مع daily_tasks.py (تذكيرات المستخدمين الفردية).
-    reminder: صف من azkar_reminders مع user_id, azkar_type, ...
+    Fires a personal azkar reminder for a single user.
+    Called by daily_tasks.fire_azkar_reminders() from the scheduler.
+    reminder: row from azkar_reminders with user_id, azkar_type, hour, minute, tz_offset
     """
-    from database.db_queries.azkar_queries import get_azkar_list
     user_id    = reminder.get("user_id")
     azkar_type = reminder.get("azkar_type", 0)
 
-    label   = {0: "أذكار الصباح", 1: "أذكار المساء",
-               2: "أذكار النوم",  3: "أذكار الاستيقاظ"}.get(azkar_type, "الأذكار")
-    icon    = _ICONS.get(azkar_type, "📿")
+    label = {
+        0: "أذكار الصباح",
+        1: "أذكار المساء",
+        2: "أذكار النوم",
+        3: "أذكار الاستيقاظ",
+    }.get(azkar_type, "الأذكار")
+    icon = _ICONS.get(azkar_type, "📿")
 
+    markup = None
     try:
         bot_info  = bot.get_me()
         bot_uname = bot_info.username or ""
-        url = f"https://t.me/{bot_uname}?start=azkar_{azkar_type}"
+        url       = f"https://t.me/{bot_uname}?start=azkar_{azkar_type}"
         from utils.keyboards import ui_btn, build_keyboard as _bk
         markup = _bk([ui_btn(f"{icon} ابدأ {label}", url=url)], [1])
     except Exception:
-        markup = None
+        pass
 
     try:
         bot.send_message(
@@ -130,17 +212,17 @@ def _fire_reminder(reminder: dict) -> None:
             reply_markup=markup,
         )
     except Exception as e:
-        print(f"[AzkarReminder] فشل إرسال تذكير للمستخدم {user_id}: {e}")
+        print(f"[AZKAR_SENT] ❌ personal reminder user={user_id}: {e}")
 
 
-# ══════════════════════════════════════════
-# أمر "ذكّرني ذكري" — تذكيرات الأذكار الشخصية
-# ══════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# Personal reminder UI — "ذكّرني ذكري" command
+# ══════════════════════════════════════════════════════════════════════════════
 
 _REMINDER_COMMANDS = {
-    "ذكّرني ذكري":       None,   # يفتح قائمة الاختيار
-    "ذكرني ذكري":        None,
-    "تذكيرات الأذكار":   None,
+    "ذكّرني ذكري",
+    "ذكرني ذكري",
+    "تذكيرات الأذكار",
 }
 
 _TYPE_LABELS = {
@@ -150,14 +232,11 @@ _TYPE_LABELS = {
     3: ("☀️", "أذكار الاستيقاظ"),
 }
 
-_MAX_REMINDERS = 3   # حد أقصى لعدد التذكيرات لكل مستخدم
+_MAX_REMINDERS = 3
 
 
 def handle_reminder_command(message) -> bool:
-    """
-    يعالج أمر تذكيرات الأذكار الشخصية.
-    يرجع True إذا تم التعامل مع الأمر.
-    """
+    """Handles the personal azkar reminder command. Returns True if handled."""
     text = (message.text or "").strip()
     if text not in _REMINDER_COMMANDS:
         return False
@@ -169,12 +248,12 @@ def handle_reminder_command(message) -> bool:
     reminders = get_user_azkar_reminders(uid)
     count     = len(reminders)
 
+    from utils.helpers import format_hour_arabic
     text_msg = f"🔔 <b>تذكيرات الأذكار</b>\n{get_lines()}\n\n"
     if reminders:
         text_msg += "تذكيراتك الحالية:\n"
         for r in reminders:
             icon, label = _TYPE_LABELS.get(r["azkar_type"], ("📿", "أذكار"))
-            from utils.helpers import format_hour_arabic
             time_label  = format_hour_arabic(r["hour"], r["minute"])
             text_msg += f"  {icon} {label} — {time_label}\n"
         text_msg += "\n"
@@ -198,11 +277,12 @@ def handle_reminder_command(message) -> bool:
     return True
 
 
-# ══════════════════════════════════════════
-# Reminder list helper
-# ══════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# Reminder list helper (shared by multiple callbacks)
+# ══════════════════════════════════════════════════════════════════════════════
 
-def _show_reminder_list(call, uid: int, cid: int, owner: tuple, reminders: list) -> None:
+def _show_reminder_list(call, uid: int, cid: int, owner: tuple,
+                        reminders: list) -> None:
     from utils.helpers import format_hour_arabic
     count    = len(reminders)
     text_msg = f"🔔 <b>تذكيرات الأذكار</b>\n{get_lines()}\n\n"
@@ -227,9 +307,9 @@ def _show_reminder_list(call, uid: int, cid: int, owner: tuple, reminders: list)
     edit_ui(call, text=text_msg, buttons=buttons, layout=[1] * len(buttons))
 
 
-# ══════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # Callbacks
-# ══════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 
 @register_action("azkar_rem_add_type")
 def on_add_type(call, data):
@@ -250,10 +330,10 @@ def on_add_type(call, data):
 
 @register_action("azkar_rem_add_hour")
 def on_add_hour(call, data):
-    uid       = call.from_user.id
-    cid       = call.message.chat.id
-    owner     = (uid, cid)
-    zikr_type = int(data["t"])
+    uid         = call.from_user.id
+    cid         = call.message.chat.id
+    owner       = (uid, cid)
+    zikr_type   = int(data["t"])
     icon, label = _TYPE_LABELS[zikr_type]
     bot.answer_callback_query(call.id)
 
