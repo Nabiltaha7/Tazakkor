@@ -17,7 +17,6 @@ def show_developer(message) -> None:
         bot_user  = bot.get_me()
         bot_name  = bot_user.first_name
 
-        line             = random.choice(lines)
         bullet           = random.choice(bullets)
         arrow            = random.choice(right_arrows)
         section_divider  = random.choice(section_dividers)
@@ -29,7 +28,7 @@ def show_developer(message) -> None:
 
         text = (
             f"{section_divider} Bot {arrow} <b>{bot_name}</b>\n"
-            f"{line}\n"
+            f"━━━━━━━━━━━━━━━\n"
             f"{bullet} Dev {arrow} <a href='tg://user?id={dev_id}'><b>{dev_name}</b></a>\n"
             f"{bullet} Bio {arrow} <b>{dev_bio}</b>"
         )

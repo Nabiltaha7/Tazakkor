@@ -180,7 +180,9 @@ def on_rem_panel(call, data):
     buttons = []
     for zikr_type, (icon, label, col) in _ZIKR_TYPES.items():
         hour = s.get(col)
-        val  = f"{hour:02d}:00" if hour is not None else "—"
+        from utils.helpers import format_hour_arabic
+        val = format_hour_arabic(hour) if hour is not None else "—"
+
         buttons.append(btn(
             f"{icon} {label} ({val})",
             "grp_rem_type", {"type": zikr_type},
@@ -204,9 +206,11 @@ def on_rem_type(call, data):
     s    = get_group_settings(cid)
     cur  = s.get(col)
 
+    from utils.helpers import format_hour_arabic
+
     text = (
         f"{icon} <b>{label}</b>\n{get_lines()}\n\n"
-        f"الوقت الحالي: <b>{'%02d:00' % cur if cur is not None else '—'}</b>\n\n"
+        f"الوقت الحالي: <b>{format_hour_arabic(cur) if cur is not None else '—'}</b>\n\n"
         f"اختر الساعة (بتوقيت المجموعة):"
     )
 
@@ -214,7 +218,7 @@ def on_rem_type(call, data):
     for h in _HOURS:
         color = _G if h == cur else _B
         buttons.append(btn(
-            f"{h:02d}:00",
+            f"{format_hour_arabic(h)}",
             "grp_set_rem",
             {"type": zikr_type, "hour": h},
             owner=owner, color=color
@@ -226,7 +230,7 @@ def on_rem_type(call, data):
 
     # 4 ساعات في كل صف
     n = len(_HOURS)
-    layout = [4] * (n // 4) + ([n % 4] if n % 4 else []) + [1, 1]
+    layout = [3] * (n // 3) + ([n % 3] if n % 3 else []) + [1, 1]
 
     bot.answer_callback_query(call.id)
     edit_ui(call, text=text, buttons=buttons, layout=layout)

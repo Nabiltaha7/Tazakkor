@@ -119,7 +119,7 @@ def handle_custom_zikr_command(message) -> bool:
     bot.reply_to(
         message,
         "📿 <b>ذكر مؤقت</b>\n\nأرسل نص الذكر:\n\n"
-        "<i>أرسل /cancel للإلغاء</i>",
+        "أرسل <code>/cancel</code> للإلغاء",
         parse_mode="HTML"
     )
     return True

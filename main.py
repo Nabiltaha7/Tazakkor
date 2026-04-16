@@ -6,7 +6,7 @@ Bot entry point.
 Startup sequence:
   1. sys.path setup (must be first)
   2. Logging config
-  3. DB file creation + schema init
+  3. DB schema init (PostgreSQL / Supabase)
   4. Schema migrations
   5. Scheduler registration
   6. keep_alive (Flask health-check thread)
@@ -23,7 +23,7 @@ import time
 import traceback
 
 from core.bot import bot
-from core.config import IS_TEST, DB_NAME
+from core.config import IS_TEST
 from telebot.apihelper import ApiTelegramException
 
 from database.db_scheme import create_all_tables
@@ -96,30 +96,23 @@ def start_bot() -> None:
 # ══════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("🧪 TEST MODE" if IS_TEST else "🚀 PRODUCTION MODE")
+    # Environment banner already printed by config.py on import.
+    if IS_TEST:
+        print("🧪 TEST MODE active")
 
-    # 1. Ensure DB file exists (connection.py handles dir creation,
-    #    but we create the file explicitly so init_db doesn't fail on a fresh deploy)
-    if not os.path.exists(DB_NAME):
-        import sqlite3
-        sqlite3.connect(DB_NAME).close()
-        print(f"✅ Created database: {DB_NAME}")
-    else:
-        print(f"✅ Database exists: {DB_NAME}")
-
-    # 2. Create all tables
+    # 1. Create all tables (PostgreSQL — no file creation needed)
     create_all_tables()
 
-    # 3. Apply schema migrations (drops, renames, etc.)
+    # 2. Apply schema migrations (drops, renames, etc.)
     update_database()
 
-    # 4. Register scheduler jobs
+    # 3. Register scheduler jobs
     from database.daily_tasks import run_daily_tasks
     run_daily_tasks()
 
-    # 5. Start Flask keep-alive thread
+    # 4. Start Flask keep-alive thread
     from web.app import keep_alive
     keep_alive()
 
-    # 6. Start polling
+    # 5. Start polling
     start_bot()

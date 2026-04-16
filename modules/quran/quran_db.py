@@ -159,19 +159,19 @@ def reload_ayat_from_api(progress_callback=None) -> tuple[bool, str]:
 
     # ── الخطوة 1: ضمان وجود جميع السور ──────────────────────────
     _log("🔍 التحقق من جدول السور...")
-    cur.execute("SELECT COUNT(*) FROM suras")
-    sura_count = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) AS cnt FROM suras")
+    sura_count = cur.fetchone()["cnt"]
 
     if sura_count < 114:
         _log(f"⚠️ جدول suras يحتوي على {sura_count} سورة فقط — سيتم إدراج المفقودة...")
         for i, name in enumerate(SURAS_NAMES, 1):
             cur.execute(
-                "INSERT OR IGNORE INTO suras (id, name) VALUES (?, ?)",
+                "INSERT INTO suras (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
                 (i, name)
             )
         conn.commit()
-        cur.execute("SELECT COUNT(*) FROM suras")
-        sura_count = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) AS cnt FROM suras")
+        sura_count = cur.fetchone()["cnt"]
         _log(f"✅ جدول suras يحتوي الآن على {sura_count} سورة.")
     else:
         _log(f"✅ جدول suras مكتمل ({sura_count} سورة).")
@@ -180,9 +180,10 @@ def reload_ayat_from_api(progress_callback=None) -> tuple[bool, str]:
     _log("🗑 حذف الآيات القديمة...")
     try:
         cur.execute("DELETE FROM ayat")
-        cur.execute("DELETE FROM sqlite_sequence WHERE name='ayat'")
+        cur.execute("ALTER SEQUENCE ayat_id_seq RESTART WITH 1")
         conn.commit()
     except Exception as e:
+        conn.rollback()
         return False, f"❌ فشل حذف الآيات القديمة:\n<code>{e}</code>"
 
     # ── الخطوة 3: تحميل الآيات سورة بسورة ───────────────────────
@@ -192,9 +193,9 @@ def reload_ayat_from_api(progress_callback=None) -> tuple[bool, str]:
 
     for sura_id in range(1, 115):
         # جلب اسم السورة (مضمون الوجود بعد الخطوة 1)
-        cur.execute("SELECT name FROM suras WHERE id = ?", (sura_id,))
+        cur.execute("SELECT name FROM suras WHERE id = %s", (sura_id,))
         row = cur.fetchone()
-        sura_name = row[0] if row else SURAS_NAMES[sura_id - 1]
+        sura_name = row["name"] if row else SURAS_NAMES[sura_id - 1]
 
         _log(f"📥 جاري تحميل سورة {sura_id}: {sura_name}...")
 
@@ -220,7 +221,8 @@ def reload_ayat_from_api(progress_callback=None) -> tuple[bool, str]:
                     INSERT INTO ayat
                         (sura_id, ayah_number, text_with_tashkeel, text_without_tashkeel,
                          tafseer_mukhtasar, tafseer_saadi, tafseer_muyassar)
-                    VALUES (?, ?, ?, ?, NULL, NULL, NULL)
+                    VALUES (%s, %s, %s, %s, NULL, NULL, NULL)
+                    ON CONFLICT (sura_id, ayah_number) DO NOTHING
                     """,
                     (sura_id, ayah_num, text_with, text_without)
                 )
@@ -231,7 +233,7 @@ def reload_ayat_from_api(progress_callback=None) -> tuple[bool, str]:
             _log(warn)
             # تراجع عن آيات هذه السورة فقط
             try:
-                cur.execute("DELETE FROM ayat WHERE sura_id = ?", (sura_id,))
+                cur.execute("DELETE FROM ayat WHERE sura_id = %s", (sura_id,))
                 conn.commit()
             except Exception:
                 pass
@@ -241,8 +243,8 @@ def reload_ayat_from_api(progress_callback=None) -> tuple[bool, str]:
         total_inserted += inserted_count
 
         # التحقق من العدد
-        cur.execute("SELECT COUNT(*) FROM ayat WHERE sura_id = ?", (sura_id,))
-        db_count = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) AS cnt FROM ayat WHERE sura_id = %s", (sura_id,))
+        db_count = cur.fetchone()["cnt"]
         if db_count != inserted_count:
             msg = f"⚠️ السورة {sura_id}: متوقع {inserted_count} آية، أُدرج {db_count}"
             mismatches.append(msg)

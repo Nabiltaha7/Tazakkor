@@ -3,3 +3,4 @@ flask
 requests
 python-dotenv
 pytz
+psycopg2-binary

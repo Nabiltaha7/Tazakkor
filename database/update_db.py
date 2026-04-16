@@ -5,8 +5,10 @@ Database migration runner — applied once at startup.
 
 Migrations here handle schema changes on existing databases that
 CREATE TABLE IF NOT EXISTS cannot handle (drops, renames, etc.).
+
+PostgreSQL compatible — no SQLite-specific syntax.
 """
-from database.connection import get_db_conn
+from database.connection import get_db_conn, db_execute
 
 
 def update_database() -> None:
@@ -16,10 +18,8 @@ def update_database() -> None:
 
 def _drop_group_members() -> None:
     """
-    Drops the group_members table — no longer needed.
-    No-op if the table doesn't exist.
+    Drops the group_members table and its index — no longer needed.
+    No-op if the table/index doesn't exist (PostgreSQL IF EXISTS is safe).
     """
-    conn = get_db_conn()
-    conn.execute("DROP TABLE IF EXISTS idx_group_members_group")
-    conn.execute("DROP TABLE IF EXISTS group_members")
-    conn.commit()
+    db_execute("DROP INDEX IF EXISTS idx_group_members_group")
+    db_execute("DROP TABLE IF EXISTS group_members")

@@ -144,6 +144,32 @@ def limit_text(text, max_length: int = 20, suffix: str = "...") -> str:
     return text[:max_length].rstrip() + suffix
 
 
+def format_hour_arabic(hour: int, minute: int = 0) -> str:
+    """
+    Formats a local hour (0–23) into a clear Arabic time string.
+
+    Examples:
+        format_hour_arabic(6)   → "06:00 صباحًا"
+        format_hour_arabic(12)  → "12:00 ظهرًا"
+        format_hour_arabic(18)  → "06:00 مساءً"
+        format_hour_arabic(0)   → "12:00 منتصف الليل"
+    """
+    if hour == 0:
+        period   = "منتصف الليل"
+        disp_h   = 12
+    elif hour < 12:
+        period   = "صباحًا"
+        disp_h   = hour
+    elif hour == 12:
+        period   = "ظهرًا"
+        disp_h   = 12
+    else:
+        period   = "مساءً"
+        disp_h   = hour - 12
+
+    return f"{disp_h:02d}:{minute:02d} {period}"
+
+
 def format_remaining_time(seconds: int) -> str:
     """Formats seconds into a human-readable Arabic duration string."""
     seconds = max(0, int(seconds))

@@ -1,30 +1,9 @@
 """
 database/db_queries/groups_queries.py
 ───────────────────────────────────────
-استعلامات جداول groups وgroup_members
+استعلامات جدول groups — PostgreSQL
 """
-from database.connection import get_db_conn, db_write
-
-
-# ══════════════════════════════════════════
-# مساعدات داخلية
-# ══════════════════════════════════════════
-
-def _get_or_create_group(cursor, tg_group_id: int, group_name: str) -> int:
-    """
-    يرجع groups.id الداخلي لمعرّف مجموعة تيليغرام.
-    يُدرج المجموعة إذا لم تكن موجودة.
-    يجب استدعاؤه داخل transaction قائمة.
-    """
-    cursor.execute("SELECT id FROM groups WHERE group_id = ?", (tg_group_id,))
-    row = cursor.fetchone()
-    if row:
-        return row[0]
-    cursor.execute(
-        "INSERT INTO groups (group_id, name) VALUES (?, ?)",
-        (tg_group_id, group_name or "Unknown")
-    )
-    return cursor.lastrowid
+from database.connection import get_db_conn, db_write, db_execute, db_fetchone, db_fetchall
 
 
 # ══════════════════════════════════════════
@@ -33,25 +12,19 @@ def _get_or_create_group(cursor, tg_group_id: int, group_name: str) -> int:
 
 def get_internal_group_id(tg_group_id: int) -> int | None:
     """يرجع groups.id لمعرّف تيليغرام، أو None إذا لم يُوجد."""
-    cur = get_db_conn().cursor()
-    cur.execute("SELECT id FROM groups WHERE group_id = ?", (tg_group_id,))
-    row = cur.fetchone()
-    return row[0] if row else None
+    row = db_fetchone("SELECT id FROM groups WHERE group_id = %s", (tg_group_id,))
+    return row["id"] if row else None
 
 
 def get_group(tg_group_id: int) -> dict | None:
     """يرجع صف المجموعة كاملاً أو None."""
-    cur = get_db_conn().cursor()
-    cur.execute("SELECT * FROM groups WHERE group_id = ?", (tg_group_id,))
-    row = cur.fetchone()
-    return dict(row) if row else None
+    return db_fetchone("SELECT * FROM groups WHERE group_id = %s", (tg_group_id,))
 
 
 def get_all_group_ids() -> list[int]:
     """يرجع قائمة بجميع group_id (معرّفات تيليغرام) المسجلة."""
-    cur = get_db_conn().cursor()
-    cur.execute("SELECT group_id FROM groups")
-    return [r[0] for r in cur.fetchall()]
+    rows = db_fetchall("SELECT group_id FROM groups")
+    return [r["group_id"] for r in rows]
 
 
 def get_group_setting(tg_group_id: int, column: str) -> int | None:
@@ -62,10 +35,8 @@ def get_group_setting(tg_group_id: int, column: str) -> int | None:
     internal_id = get_internal_group_id(tg_group_id)
     if not internal_id:
         return None
-    cur = get_db_conn().cursor()
-    cur.execute(f"SELECT {column} FROM groups WHERE id = ?", (internal_id,))
-    row = cur.fetchone()
-    return row[0] if row else None
+    row = db_fetchone(f"SELECT {column} FROM groups WHERE id = %s", (internal_id,))
+    return row[column] if row else None
 
 
 # ══════════════════════════════════════════
@@ -75,19 +46,26 @@ def get_group_setting(tg_group_id: int, column: str) -> int | None:
 def upsert_group(tg_group_id: int, group_name: str) -> int:
     """يُدرج أو يُحدّث المجموعة. يرجع groups.id الداخلي."""
     def _write():
-        conn   = get_db_conn()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO groups (group_id, name)
-            VALUES (?, ?)
-            ON CONFLICT(group_id) DO UPDATE SET name = excluded.name
-            """,
-            (tg_group_id, group_name or "Unknown")
-        )
-        conn.commit()
-        cursor.execute("SELECT id FROM groups WHERE group_id = ?", (tg_group_id,))
-        return cursor.fetchone()[0]
+        conn = get_db_conn()
+        cur  = conn.cursor()
+        try:
+            cur.execute(
+                """
+                INSERT INTO groups (group_id, name)
+                VALUES (%s, %s)
+                ON CONFLICT (group_id) DO UPDATE SET name = EXCLUDED.name
+                RETURNING id
+                """,
+                (tg_group_id, group_name or "Unknown")
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return row["id"]
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
 
     return db_write(_write)
 
@@ -98,18 +76,16 @@ def upsert_user_identity(user_id: int, full_name: str, username: str = None) -> 
     username  = (username  or "").strip() or None
 
     def _write():
-        conn = get_db_conn()
-        conn.execute(
+        db_execute(
             """
             INSERT INTO users (user_id, name, username)
-            VALUES (?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                name     = excluded.name,
-                username = excluded.username
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                name     = EXCLUDED.name,
+                username = EXCLUDED.username
             """,
             (user_id, full_name, username)
         )
-        conn.commit()
 
     db_write(_write)
 
@@ -117,26 +93,22 @@ def upsert_user_identity(user_id: int, full_name: str, username: str = None) -> 
 def set_group_setting(tg_group_id: int, column: str, value: int) -> bool:
     """
     يُحدّث عمود إعداد واحد في جدول groups.
-    مثال: set_group_setting(gid, 'azkar_enabled', 1)
     يرجع True إذا نجح التحديث.
     """
     internal_id = get_internal_group_id(tg_group_id)
     if not internal_id:
         return False
-    conn = get_db_conn()
-    conn.execute(
-        f"UPDATE groups SET {column} = ? WHERE id = ?",
+    db_execute(
+        f"UPDATE groups SET {column} = %s WHERE id = %s",
         (value, internal_id)
     )
-    conn.commit()
     return True
 
 
 # ══════════════════════════════════════════
-# إعدادات المجموعة (tz، أذكار، فترة الإرسال)
+# إعدادات المجموعة
 # ══════════════════════════════════════════
 
-# أعمدة الإعدادات المسموح بتعديلها
 _ALLOWED_SETTINGS = {
     "tz_offset", "azkar_enabled", "azkar_interval",
     "azkar_rem_morning", "azkar_rem_evening",
@@ -149,20 +121,18 @@ def get_group_settings(tg_group_id: int) -> dict:
     يرجع dict بجميع إعدادات المجموعة.
     يرجع قيماً افتراضية إذا لم تكن المجموعة مسجلة.
     """
-    cur = get_db_conn().cursor()
-    cur.execute(
+    row = db_fetchone(
         "SELECT tz_offset, azkar_enabled, azkar_interval, "
         "azkar_rem_morning, azkar_rem_evening, azkar_rem_sleep, azkar_rem_wakeup "
-        "FROM groups WHERE group_id = ?",
+        "FROM groups WHERE group_id = %s",
         (tg_group_id,)
     )
-    row = cur.fetchone()
     if row:
-        return dict(row)
+        return row
     return {
-        "tz_offset":        180,
-        "azkar_enabled":    0,
-        "azkar_interval":   15,
+        "tz_offset":          180,
+        "azkar_enabled":      0,
+        "azkar_interval":     15,
         "azkar_rem_morning":  None,
         "azkar_rem_evening":  None,
         "azkar_rem_sleep":    None,
@@ -180,12 +150,10 @@ def update_group_setting(tg_group_id: int, column: str, value) -> bool:
     internal_id = get_internal_group_id(tg_group_id)
     if not internal_id:
         return False
-    conn = get_db_conn()
-    conn.execute(
-        f"UPDATE groups SET {column} = ? WHERE id = ?",
+    db_execute(
+        f"UPDATE groups SET {column} = %s WHERE id = %s",
         (value, internal_id)
     )
-    conn.commit()
     return True
 
 
@@ -196,9 +164,7 @@ def get_groups_with_reminder(reminder_col: str) -> list[dict]:
     """
     if reminder_col not in _ALLOWED_SETTINGS:
         return []
-    cur = get_db_conn().cursor()
-    cur.execute(
+    return db_fetchall(
         f"SELECT group_id, tz_offset, {reminder_col} AS hour "
-        f"FROM groups WHERE {reminder_col} IS NOT NULL",
+        f"FROM groups WHERE {reminder_col} IS NOT NULL"
     )
-    return [dict(r) for r in cur.fetchall()]

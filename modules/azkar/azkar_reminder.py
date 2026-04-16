@@ -174,7 +174,9 @@ def handle_reminder_command(message) -> bool:
         text_msg += "تذكيراتك الحالية:\n"
         for r in reminders:
             icon, label = _TYPE_LABELS.get(r["azkar_type"], ("📿", "أذكار"))
-            text_msg += f"  {icon} {label} — {r['hour']:02d}:{r['minute']:02d}\n"
+            from utils.helpers import format_hour_arabic
+            time_label  = format_hour_arabic(r["hour"], r["minute"])
+            text_msg += f"  {icon} {label} — {time_label}\n"
         text_msg += "\n"
     else:
         text_msg += "لا توجد تذكيرات مضافة بعد.\n\n"
@@ -201,12 +203,14 @@ def handle_reminder_command(message) -> bool:
 # ══════════════════════════════════════════
 
 def _show_reminder_list(call, uid: int, cid: int, owner: tuple, reminders: list) -> None:
+    from utils.helpers import format_hour_arabic
     count    = len(reminders)
     text_msg = f"🔔 <b>تذكيرات الأذكار</b>\n{get_lines()}\n\n"
     if reminders:
         for r in reminders:
             icon, label = _TYPE_LABELS.get(r["azkar_type"], ("📿", "أذكار"))
-            text_msg += f"  {icon} {label} — {r['hour']:02d}:{r['minute']:02d}\n"
+            time_label  = format_hour_arabic(r["hour"], r["minute"])
+            text_msg += f"  {icon} {label} — {time_label}\n"
         text_msg += "\n"
     else:
         text_msg += "لا توجد تذكيرات.\n\n"
@@ -253,16 +257,17 @@ def on_add_hour(call, data):
     icon, label = _TYPE_LABELS[zikr_type]
     bot.answer_callback_query(call.id)
 
+    from utils.helpers import format_hour_arabic
     buttons = [
-        btn(f"{h:02d}:00", "azkar_rem_save",
+        btn(format_hour_arabic(h), "azkar_rem_save",
             {"t": zikr_type, "h": h, "m": 0},
             owner=owner, color="p")
         for h in range(24)
     ]
     buttons.append(btn("🔙 رجوع", "azkar_rem_add_type", {}, owner=owner, color="d"))
     edit_ui(call,
-            text=f"{icon} <b>{label}</b>\n\nاختر الساعة (بتوقيتك المحلي):",
-            buttons=buttons, layout=[4] * 6 + [1])
+            text=f"{icon} <b>{label}</b>\n\nاختر الوقت (بتوقيتك المحلي):",
+            buttons=buttons, layout=[3] * 8 + [1])
 
 
 @register_action("azkar_rem_save")
@@ -285,9 +290,11 @@ def on_save(call, data):
 
     add_azkar_reminder(uid, zikr_type, hour, minute)
     icon, label = _TYPE_LABELS[zikr_type]
+    from utils.helpers import format_hour_arabic
+    time_label = format_hour_arabic(hour, minute)
     bot.answer_callback_query(
         call.id,
-        f"✅ تم إضافة تذكير {label} على {hour:02d}:{minute:02d}",
+        f"✅ تم إضافة تذكير {label} على {time_label}",
         show_alert=True
     )
     reminders = get_user_azkar_reminders(uid)
@@ -306,11 +313,12 @@ def on_delete_list(call, data):
         bot.answer_callback_query(call.id, "لا توجد تذكيرات.", show_alert=True)
         return
 
+    from utils.helpers import format_hour_arabic
     buttons = [
         btn(
             f"🗑 {_TYPE_LABELS.get(r['azkar_type'], ('📿', 'أذكار'))[0]} "
             f"{_TYPE_LABELS.get(r['azkar_type'], ('📿', 'أذكار'))[1]} "
-            f"{r['hour']:02d}:{r['minute']:02d}",
+            f"— {format_hour_arabic(r['hour'], r['minute'])}",
             "azkar_rem_delete_one", {"rid": r["id"]},
             owner=owner, color="d"
         )

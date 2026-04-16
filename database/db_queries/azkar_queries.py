@@ -1,7 +1,7 @@
 """
 database/db_queries/azkar_queries.py
 ──────────────────────────────────────
-استعلامات جداول azkar وazkar_progress وazkar_reminders
+استعلامات جداول azkar وazkar_progress وazkar_reminders — PostgreSQL
 
 zikr_type codes:
   0 = أذكار الصباح
@@ -9,7 +9,7 @@ zikr_type codes:
   2 = أذكار النوم
   3 = أذكار الاستيقاظ
 """
-from database.connection import get_db_conn
+from database.connection import get_db_conn, db_execute, db_fetchone, db_fetchall
 
 
 # ══════════════════════════════════════════
@@ -20,7 +20,7 @@ def get_azkar_list(zikr_type: int) -> list[dict]:
     """يرجع قائمة الأذكار لنوع معين مرتبةً بالـ id."""
     cur = get_db_conn().cursor()
     cur.execute(
-        "SELECT id, text, repeat_count, zikr_type FROM azkar WHERE zikr_type = ? ORDER BY id",
+        "SELECT id, text, repeat_count, zikr_type FROM azkar WHERE zikr_type = %s ORDER BY id",
         (zikr_type,),
     )
     return [dict(r) for r in cur.fetchall()]
@@ -29,7 +29,7 @@ def get_azkar_list(zikr_type: int) -> list[dict]:
 def get_zikr(zikr_id: int) -> dict | None:
     """يرجع ذكراً واحداً بمعرّفه أو None."""
     cur = get_db_conn().cursor()
-    cur.execute("SELECT * FROM azkar WHERE id = ?", (zikr_id,))
+    cur.execute("SELECT * FROM azkar WHERE id = %s", (zikr_id,))
     row = cur.fetchone()
     return dict(row) if row else None
 
@@ -39,11 +39,12 @@ def add_zikr(text: str, repeat_count: int, zikr_type: int) -> int:
     conn = get_db_conn()
     cur  = conn.cursor()
     cur.execute(
-        "INSERT INTO azkar (text, repeat_count, zikr_type) VALUES (?, ?, ?)",
+        "INSERT INTO azkar (text, repeat_count, zikr_type) VALUES (%s, %s, %s) RETURNING id",
         (text.strip(), repeat_count, zikr_type),
     )
+    row = cur.fetchone()
     conn.commit()
-    return cur.lastrowid
+    return row["id"] if row else 0
 
 
 def update_zikr(zikr_id: int, text: str, repeat_count: int) -> bool:
@@ -51,7 +52,7 @@ def update_zikr(zikr_id: int, text: str, repeat_count: int) -> bool:
     conn = get_db_conn()
     cur  = conn.cursor()
     cur.execute(
-        "UPDATE azkar SET text = ?, repeat_count = ? WHERE id = ?",
+        "UPDATE azkar SET text = %s, repeat_count = %s WHERE id = %s",
         (text.strip(), repeat_count, zikr_id),
     )
     conn.commit()
@@ -62,7 +63,7 @@ def delete_zikr(zikr_id: int) -> bool:
     """يحذف ذكراً. يرجع True إذا تأثر صف."""
     conn = get_db_conn()
     cur  = conn.cursor()
-    cur.execute("DELETE FROM azkar WHERE id = ?", (zikr_id,))
+    cur.execute("DELETE FROM azkar WHERE id = %s", (zikr_id,))
     conn.commit()
     return cur.rowcount > 0
 
@@ -70,7 +71,7 @@ def delete_zikr(zikr_id: int) -> bool:
 def zikr_exists(zikr_type: int) -> bool:
     """يتحقق من وجود أي أذكار لنوع معين."""
     cur = get_db_conn().cursor()
-    cur.execute("SELECT 1 FROM azkar WHERE zikr_type = ? LIMIT 1", (zikr_type,))
+    cur.execute("SELECT 1 FROM azkar WHERE zikr_type = %s LIMIT 1", (zikr_type,))
     return cur.fetchone() is not None
 
 
@@ -85,7 +86,7 @@ def get_azkar_progress(user_id: int, zikr_type: int) -> dict:
     """
     cur = get_db_conn().cursor()
     cur.execute(
-        "SELECT zikr_index, remaining FROM azkar_progress WHERE user_id = ? AND zikr_type = ?",
+        "SELECT zikr_index, remaining FROM azkar_progress WHERE user_id = %s AND zikr_type = %s",
         (user_id, zikr_type),
     )
     row = cur.fetchone()
@@ -96,28 +97,24 @@ def get_azkar_progress(user_id: int, zikr_type: int) -> dict:
 def save_azkar_progress(user_id: int, zikr_type: int,
                         zikr_index: int, remaining: int) -> None:
     """يحفظ أو يُحدّث تقدم المستخدم في جلسة الأذكار."""
-    conn = get_db_conn()
-    conn.execute(
+    db_execute(
         """
         INSERT INTO azkar_progress (user_id, zikr_type, zikr_index, remaining)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(user_id, zikr_type) DO UPDATE SET
-            zikr_index = excluded.zikr_index,
-            remaining  = excluded.remaining
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (user_id, zikr_type) DO UPDATE SET
+            zikr_index = EXCLUDED.zikr_index,
+            remaining  = EXCLUDED.remaining
         """,
         (user_id, zikr_type, zikr_index, remaining),
     )
-    conn.commit()
 
 
 def reset_azkar_progress(user_id: int, zikr_type: int) -> None:
     """يحذف تقدم المستخدم في جلسة معينة (إعادة تعيين)."""
-    conn = get_db_conn()
-    conn.execute(
-        "DELETE FROM azkar_progress WHERE user_id = ? AND zikr_type = ?",
+    db_execute(
+        "DELETE FROM azkar_progress WHERE user_id = %s AND zikr_type = %s",
         (user_id, zikr_type),
     )
-    conn.commit()
 
 
 # ══════════════════════════════════════════
@@ -130,11 +127,13 @@ def add_azkar_reminder(user_id: int, azkar_type: int,
     conn = get_db_conn()
     cur  = conn.cursor()
     cur.execute(
-        "INSERT INTO azkar_reminders (user_id, azkar_type, hour, minute) VALUES (?, ?, ?, ?)",
+        "INSERT INTO azkar_reminders (user_id, azkar_type, hour, minute) "
+        "VALUES (%s, %s, %s, %s) RETURNING id",
         (user_id, azkar_type, hour, minute),
     )
+    row = cur.fetchone()
     conn.commit()
-    return cur.lastrowid
+    return row["id"] if row else 0
 
 
 def get_user_azkar_reminders(user_id: int) -> list[dict]:
@@ -142,7 +141,7 @@ def get_user_azkar_reminders(user_id: int) -> list[dict]:
     cur = get_db_conn().cursor()
     cur.execute(
         "SELECT id, user_id, azkar_type, hour, minute, created_at "
-        "FROM azkar_reminders WHERE user_id = ? ORDER BY hour, minute",
+        "FROM azkar_reminders WHERE user_id = %s ORDER BY hour, minute",
         (user_id,),
     )
     return [dict(r) for r in cur.fetchall()]
@@ -153,7 +152,7 @@ def delete_azkar_reminder(reminder_id: int, user_id: int) -> bool:
     conn = get_db_conn()
     cur  = conn.cursor()
     cur.execute(
-        "DELETE FROM azkar_reminders WHERE id = ? AND user_id = ?",
+        "DELETE FROM azkar_reminders WHERE id = %s AND user_id = %s",
         (reminder_id, user_id),
     )
     conn.commit()
@@ -163,8 +162,8 @@ def delete_azkar_reminder(reminder_id: int, user_id: int) -> bool:
 def count_user_azkar_reminders(user_id: int) -> int:
     """يرجع عدد تذكيرات المستخدم."""
     cur = get_db_conn().cursor()
-    cur.execute("SELECT COUNT(*) FROM azkar_reminders WHERE user_id = ?", (user_id,))
-    return cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) AS cnt FROM azkar_reminders WHERE user_id = %s", (user_id,))
+    return cur.fetchone()["cnt"]
 
 
 def get_due_azkar_reminders(utc_hour: int, utc_minute: int) -> list[dict]:
@@ -197,8 +196,8 @@ def get_random_azkar_content() -> dict | None:
     """يجلب ذكراً عشوائياً من azkar_content بكفاءة."""
     cur = get_db_conn().cursor()
     cur.execute(
-        "SELECT * FROM azkar_content LIMIT 1 "
-        "OFFSET ABS(RANDOM()) % MAX(1, (SELECT COUNT(*) FROM azkar_content))"
+        "SELECT * FROM azkar_content OFFSET FLOOR(RANDOM() * "
+        "(SELECT COUNT(*) FROM azkar_content)) LIMIT 1"
     )
     row = cur.fetchone()
     return dict(row) if row else None
@@ -206,15 +205,15 @@ def get_random_azkar_content() -> dict | None:
 
 def get_azkar_content_by_id(row_id: int) -> dict | None:
     cur = get_db_conn().cursor()
-    cur.execute("SELECT * FROM azkar_content WHERE id = ?", (row_id,))
+    cur.execute("SELECT * FROM azkar_content WHERE id = %s", (row_id,))
     row = cur.fetchone()
     return dict(row) if row else None
 
 
 def count_azkar_content() -> int:
     cur = get_db_conn().cursor()
-    cur.execute("SELECT COUNT(*) FROM azkar_content")
-    return cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) AS cnt FROM azkar_content")
+    return cur.fetchone()["cnt"]
 
 
 def insert_azkar_content(content: str) -> int:
@@ -222,18 +221,20 @@ def insert_azkar_content(content: str) -> int:
     conn = get_db_conn()
     cur  = conn.cursor()
     cur.execute(
-        "INSERT OR IGNORE INTO azkar_content (content) VALUES (?)",
+        "INSERT INTO azkar_content (content) VALUES (%s) "
+        "ON CONFLICT (content) DO NOTHING RETURNING id",
         (content.strip(),)
     )
+    row = cur.fetchone()
     conn.commit()
-    return cur.lastrowid
+    return row["id"] if row else 0
 
 
 def update_azkar_content(row_id: int, content: str) -> bool:
     conn = get_db_conn()
     cur  = conn.cursor()
     cur.execute(
-        "UPDATE azkar_content SET content = ? WHERE id = ?",
+        "UPDATE azkar_content SET content = %s WHERE id = %s",
         (content.strip(), row_id)
     )
     conn.commit()
@@ -243,6 +244,6 @@ def update_azkar_content(row_id: int, content: str) -> bool:
 def delete_azkar_content(row_id: int) -> bool:
     conn = get_db_conn()
     cur  = conn.cursor()
-    cur.execute("DELETE FROM azkar_content WHERE id = ?", (row_id,))
+    cur.execute("DELETE FROM azkar_content WHERE id = %s", (row_id,))
     conn.commit()
     return cur.rowcount > 0
