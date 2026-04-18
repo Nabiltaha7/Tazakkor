@@ -39,10 +39,10 @@ def build_ayah_buttons(uid: int, cid: int, ayah: dict,
         ctx["fp"]  = fav_page
 
     nav = []
-    if has_prev:
-        nav.append(btn("➡️ السابقة", "qr_prev", ctx, color=_B, owner=owner))
     if has_next:
         nav.append(btn("⬅️ التالية", "qr_next", ctx, color=_B, owner=owner))
+    if has_prev:
+        nav.append(btn("➡️ السابقة", "qr_prev", ctx, color=_B, owner=owner))
 
     fav_label = "💛 إزالة من المفضلة" if is_fav else "⭐️ المفضلة"
     fav_ctx   = {"aid": aid}
@@ -278,18 +278,14 @@ def build_sura_buttons(suras: list[dict], uid: int, cid: int, page: int, total_p
 
 
 
-    if page > 0:
-        nav.append(
-            btn("▶️ السابق", "qr_dev_tafseer_sura_page", {"p": page - 1}, color=_G,owner=owner)
-        )
-
-    nav.append(btn("❌ إلغاء", "qr_dev_cancel", {}, color=_R, owner=owner))
     
     if page < total_pages - 1:
-        nav.append(
-            btn("التالي ◀️", "qr_dev_tafseer_sura_page", {"p": page + 1}, color=_G, owner=owner)
-        )
+        nav.append(btn("التالي ◀️", "qr_dev_tafseer_sura_page", {"p": page + 1}, color=_G, owner=owner))
 
+    nav.append(btn("❌ إلغاء", "qr_dev_cancel", {}, color=_R, owner=owner))
+
+    if page > 0:
+        nav.append(btn("▶️ السابق", "qr_dev_tafseer_sura_page", {"p": page - 1}, color=_G,owner=owner))
     # إضافة أزرار التنقل بعد السور
     buttons.extend(nav)
 

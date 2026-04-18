@@ -71,11 +71,11 @@ def _show_sura_list(cid, uid, page, reply_to=None, call=None, back_action=None):
     close_data   = {}
 
     nav = []
-    if page > 0:
-        nav.append(btn("▶️ السابق", "sr_sura_page", {"p": page - 1, "ba": back_action or ""}, owner=owner, color=_G))
-    nav.append(btn(close_label, close_action, close_data, owner=owner, color=_R))
     if page < total_pages - 1:
         nav.append(btn("التالي ◀️", "sr_sura_page", {"p": page + 1, "ba": back_action or ""}, owner=owner, color=_G))
+    nav.append(btn(close_label, close_action, close_data, owner=owner, color=_R))
+    if page > 0:
+        nav.append(btn("▶️ السابق", "sr_sura_page", {"p": page - 1, "ba": back_action or ""}, owner=owner, color=_G))
     buttons.extend(nav)
 
     count  = len(items)
@@ -204,10 +204,10 @@ def _show_ayah(uid, cid, ayah, sid, list_page, call=None, reply_to=None, returne
     )
 
     nav = []
-    if has_prev:
-        nav.append(btn("➡️ السابقة", "sr_prev", ctx, color=_B, owner=owner))
     if has_next:
         nav.append(btn("⬅️ التالية",  "sr_next", ctx, color=_B, owner=owner))
+    if has_prev:
+        nav.append(btn("➡️ السابقة", "sr_prev", ctx, color=_B, owner=owner))
 
     fav_label = "💛 إزالة" if is_fav else "⭐️ مفضلة"
     action_row = [
@@ -409,10 +409,10 @@ def _show_khatmah_ayah(uid, cid, ayah, call=None, reply_to=None, returned=False)
     )
 
     nav = []
-    if has_prev:
-        nav.append(btn("➡️ السابقة", "kh_prev", {"aid": aid}, color=_B, owner=owner))
     if has_next:
         nav.append(btn("⬅️ التالية", "kh_next", {"aid": aid}, color=_B, owner=owner))
+    if has_prev:
+        nav.append(btn("➡️ السابقة", "kh_prev", {"aid": aid}, color=_B, owner=owner))
 
     fav_label = "💛 إزالة" if is_fav else "⭐️ مفضلة"
     action_row = [

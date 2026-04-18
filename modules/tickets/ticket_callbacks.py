@@ -338,12 +338,12 @@ def on_ticket_list(call, data):
         )
 
     nav = []
-    if page > 0:
-        nav.append(btn("▶️ السابق", "ticket_list",
-                       data={"status": status, "page": page - 1}, owner=(user_id, chat_id)))
     if page < total_pages - 1:
         nav.append(btn("التالي ◀️", "ticket_list",
                        data={"status": status, "page": page + 1}, owner=(user_id, chat_id)))
+    if page > 0:
+        nav.append(btn("▶️ السابق", "ticket_list",
+                       data={"status": status, "page": page - 1}, owner=(user_id, chat_id)))
     nav.append(btn("🔙 رجوع", "ticket_admin_back", data={}, owner=(user_id, chat_id)))
 
     layout = [1] * len(buttons) + [len(nav)]
@@ -473,12 +473,12 @@ def _build_my_tickets_view(user_id, chat_id, tickets, total, page):
         )
 
     nav = []
-    if page > 0:
-        nav.append(btn("▶️ السابق", "my_tickets_page",
-                       data={"page": page - 1}, owner=owner))
     if page < total_pages - 1:
         nav.append(btn("التالي ◀️", "my_tickets_page",
                        data={"page": page + 1}, owner=owner))
+    if page > 0:
+        nav.append(btn("▶️ السابق", "my_tickets_page",
+                       data={"page": page - 1}, owner=owner))
 
     layout = [1] * len(buttons) + ([len(nav)] if nav else [])
     return text, buttons + nav, layout
@@ -644,12 +644,12 @@ def _show_banned_list(chat_id, owner_id, page: int, reply_to=None):
     owner   = (owner_id, chat_id)
     buttons = []
 
-    if page > 0:
-        buttons.append(btn("➡️ السابق", "ticket_bans_page",
-                           data={"page": page - 1}, owner=owner))
     if page < total_pages - 1:
         buttons.append(btn("⬅️ التالي", "ticket_bans_page",
                            data={"page": page + 1}, owner=owner))
+    if page > 0:
+        buttons.append(btn("➡️ السابق", "ticket_bans_page",
+                           data={"page": page - 1}, owner=owner))
     buttons.append(btn("❌ إغلاق", "ticket_bans_close", data={}, owner=owner, color="d"))
 
     nav_count = len(buttons)
@@ -677,12 +677,12 @@ def on_bans_page(call, data):
     owner   = (user_id, chat_id)
     buttons = []
 
-    if page > 0:
-        buttons.append(btn("➡️ السابق", "ticket_bans_page",
-                           data={"page": page - 1}, owner=owner))
     if page < total_pages - 1:
         buttons.append(btn("⬅️ التالي", "ticket_bans_page",
                            data={"page": page + 1}, owner=owner))
+    if page > 0:
+        buttons.append(btn("➡️ السابق", "ticket_bans_page",
+                           data={"page": page - 1}, owner=owner))
     buttons.append(btn("❌ إغلاق", "ticket_bans_close", data={}, owner=owner, color="d"))
 
     nav_count = len(buttons)

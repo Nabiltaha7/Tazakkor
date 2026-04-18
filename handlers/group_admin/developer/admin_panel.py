@@ -143,11 +143,11 @@ def show_constants(call, data):
                                owner=owner, color=_BLUE))
 
     nav = []
-    if page > 0:
-        nav.append(btn("السابق", "adm_constants", data={"page": page-1}, owner=owner))
-    nav.append(_back("adm_main_back", {}, owner))
     if page < total_pages - 1:
         nav.append(btn("التالي", "adm_constants", data={"page": page+1}, owner=owner))
+    nav.append(_back("adm_main_back", {}, owner))
+    if page > 0:
+        nav.append(btn("السابق", "adm_constants", data={"page": page-1}, owner=owner))
 
     # أزرار الثوابت: 4 في كل صف
     btn_rows = [4] * (len(buttons) // 4)
@@ -660,10 +660,10 @@ def adm_azkar_list(call, data):
         ))
 
     nav = []
-    if page > 0:
-        nav.append(btn("▶️ السابق", "adm_azkar_list", {"type": zikr_type, "page": page - 1}, owner=owner))
     if page < total_pages - 1:
         nav.append(btn("التالي ◀️", "adm_azkar_list", {"type": zikr_type, "page": page + 1}, owner=owner))
+    if page > 0:
+        nav.append(btn("▶️ السابق", "adm_azkar_list", {"type": zikr_type, "page": page - 1}, owner=owner))
 
     buttons += nav
     buttons.append(btn("➕ إضافة ذكر", "adm_azkar_add", {"type": zikr_type, "page": page}, owner=owner, color=_GRN))
