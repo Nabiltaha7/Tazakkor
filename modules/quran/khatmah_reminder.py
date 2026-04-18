@@ -2,27 +2,42 @@
 modules/quran/khatmah_reminder.py
 
 Khatmah reminder logic.
-The scheduler loop has been removed — reminders are now fired by the
-unified IntervalScheduler in database/daily_tasks.py every 5 minutes.
+Fired by the HourlyScheduler in database/daily_tasks.py once per UTC hour.
 
 Public API:
-  fire_due_reminders(utc_hour, utc_minute) — called by the interval scheduler.
+  fire_due_reminders(utc_hour) — called by the hourly scheduler.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from core.bot import bot
 from modules.quran import quran_db as db
 from utils.pagination import btn
 from utils.pagination.buttons import build_keyboard
 
+_YEMEN_TZ = timezone(timedelta(hours=3))
 
-def fire_due_reminders(utc_hour: int, utc_minute: int):
+# Dedup: (user_id, "YYYY-MM-DD") → True — one reminder per user per day
+_sent_today: dict[tuple, bool] = {}
+
+
+def _prune_sent_today() -> None:
+    """Removes entries from previous Yemen days."""
+    today = datetime.now(_YEMEN_TZ).strftime("%Y-%m-%d")
+    stale = [k for k in _sent_today if k[1] != today]
+    for k in stale:
+        del _sent_today[k]
+
+
+def fire_due_reminders(utc_hour: int, utc_minute: int = 0):
     """
-    Sends khatmah reminders whose local time matches utc_hour:utc_minute.
-    Called by the interval scheduler — no thread management here.
+    Sends khatmah reminders whose configured local hour matches utc_hour.
+    Called once per UTC hour by the HourlyScheduler.
+    utc_minute is accepted for backward-compat but ignored.
     """
+    _prune_sent_today()
     try:
-        due = db.get_due_khatma_reminders(utc_hour, utc_minute)
+        # Pass minute=0 — reminders are hour-only
+        due = db.get_due_khatma_reminders(utc_hour, 0)
         for r in due:
             _fire(r)
     except Exception as e:
@@ -31,10 +46,18 @@ def fire_due_reminders(utc_hour: int, utc_minute: int):
 
 def _fire(r: dict):
     uid   = r["user_id"]
-    goal  = db.get_khatma_goal(uid)
-    today = db.get_today_count(uid)
+    today = datetime.now(_YEMEN_TZ).strftime("%Y-%m-%d")
 
-    if goal > 0 and today >= goal:
+    # One reminder per user per day
+    key = (uid, today)
+    if key in _sent_today:
+        return
+    _sent_today[key] = True
+
+    goal  = db.get_khatma_goal(uid)
+    today_count = db.get_today_count(uid)
+
+    if goal > 0 and today_count >= goal:
         return
 
     streak   = db.get_streak(uid)
@@ -59,7 +82,7 @@ def _fire(r: dict):
             f"📖 وردك اليومي ينتظرك"
             f"{extra_line}\n"
             f"🎯 هدفك: <b>{goal}</b> آية\n"
-            f"📊 تقدمك اليوم: <b>{today}</b> / {goal}",
+            f"📊 تقدمك اليوم: <b>{today_count}</b> / {goal}",
             parse_mode="HTML",
             reply_markup=markup,
         )
@@ -69,5 +92,5 @@ def _fire(r: dict):
 
 # ── Backward-compat stub — no longer starts a thread ─────────────
 def start_khatmah_reminder_scheduler():
-    """Deprecated. Reminders are now handled by the unified IntervalScheduler."""
+    """Deprecated. Reminders are now handled by the unified HourlyScheduler."""
     pass

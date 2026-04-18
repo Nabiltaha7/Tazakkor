@@ -3,6 +3,9 @@ modules/content_hub/azkar_sender.py
 ─────────────────────────────────────
 يرسل أذكاراً دورية للمجموعات التي فعّلت azkar_enabled.
 يُشغَّل كل 5 دقائق من المُجدوِل.
+
+قاعدة: الحد الأدنى للفترة الزمنية بين الإرسالين = 5 دقائق.
+أي قيمة أقل من 5 في azkar_interval تُعامَل كـ 5.
 """
 import time
 
@@ -13,12 +16,15 @@ from database.db_queries.groups_queries import get_all_group_ids, get_group_sett
 # throttle: group_id → last_sent_unix
 _last_sent: dict[int, float] = {}
 
+# Hard floor — no group may receive azkar faster than this
+_MIN_INTERVAL_SEC = 300   # 5 minutes
+
 
 def _get_interval_seconds() -> int:
     """يقرأ azkar_interval_minutes من bot_constants. الافتراضي 10 دقائق."""
     try:
         from core.admin import get_const_int
-        return get_const_int("azkar_interval_minutes", 10) * 60
+        return max(_MIN_INTERVAL_SEC, get_const_int("azkar_interval_minutes", 10) * 60)
     except Exception:
         return 600
 
@@ -27,6 +33,7 @@ def send_periodic_azkar():
     """
     يُرسَل من المُجدوِل كل 5 دقائق.
     يرسل ذكراً لكل مجموعة فعّلت azkar_enabled مع احترام الفترة الزمنية لكل مجموعة.
+    الحد الأدنى للفترة: 5 دقائق (300 ثانية) — لا يمكن تجاوزه.
     """
     now = time.time()
 
@@ -42,8 +49,9 @@ def send_periodic_azkar():
                 continue
 
             # فترة الإرسال الخاصة بالمجموعة (بالدقائق)، افتراضي 15
+            # الحد الأدنى: 5 دقائق
             interval_min = get_group_setting(tg_group_id, "azkar_interval") or 15
-            interval_sec = int(interval_min) * 60
+            interval_sec = max(_MIN_INTERVAL_SEC, int(interval_min) * 60)
 
             if now - _last_sent.get(tg_group_id, 0) < interval_sec:
                 continue

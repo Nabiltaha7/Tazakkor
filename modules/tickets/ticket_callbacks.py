@@ -338,12 +338,12 @@ def on_ticket_list(call, data):
         )
 
     nav = []
-    if page < total_pages - 1:
-        nav.append(btn("التالي ◀️", "ticket_list",
-                       data={"status": status, "page": page + 1}, owner=(user_id, chat_id)))
     if page > 0:
         nav.append(btn("▶️ السابق", "ticket_list",
                        data={"status": status, "page": page - 1}, owner=(user_id, chat_id)))
+    if page < total_pages - 1:
+        nav.append(btn("التالي ◀️", "ticket_list",
+                       data={"status": status, "page": page + 1}, owner=(user_id, chat_id)))
     nav.append(btn("🔙 رجوع", "ticket_admin_back", data={}, owner=(user_id, chat_id)))
 
     layout = [1] * len(buttons) + [len(nav)]
@@ -473,12 +473,12 @@ def _build_my_tickets_view(user_id, chat_id, tickets, total, page):
         )
 
     nav = []
-    if page < total_pages - 1:
-        nav.append(btn("التالي ◀️", "my_tickets_page",
-                       data={"page": page + 1}, owner=owner))
     if page > 0:
         nav.append(btn("▶️ السابق", "my_tickets_page",
                        data={"page": page - 1}, owner=owner))
+    if page < total_pages - 1:
+        nav.append(btn("التالي ◀️", "my_tickets_page",
+                       data={"page": page + 1}, owner=owner))
 
     layout = [1] * len(buttons) + ([len(nav)] if nav else [])
     return text, buttons + nav, layout

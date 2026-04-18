@@ -106,7 +106,11 @@ if __name__ == "__main__":
     # 2. Apply schema migrations (drops, renames, etc.)
     update_database()
 
-    # 3. Register scheduler jobs
+    # 3. Load ALL bot_constants into memory once (before scheduler reads them)
+    from core.config import load_config_on_startup
+    load_config_on_startup()
+
+    # 4. Register scheduler jobs
     from database.daily_tasks import run_daily_tasks
     run_daily_tasks()
 

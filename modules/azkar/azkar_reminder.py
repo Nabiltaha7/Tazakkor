@@ -1,7 +1,7 @@
 """
 modules/azkar/azkar_reminder.py
 ─────────────────────────────────
-Group azkar reminders — fires from the scheduler every 5 minutes.
+Group azkar reminders — fired by the HourlyScheduler once per UTC hour.
 
 System B: Fixed-time azkar reminders per group.
   Each group stores a local hour (0–23) for each azkar type:
@@ -10,14 +10,15 @@ System B: Fixed-time azkar reminders per group.
     azkar_rem_sleep    → 😴 أذكار النوم
     azkar_rem_wakeup   → ☀️ أذكار الاستيقاظ
 
-  The scheduler calls fire_group_azkar_reminders(utc_hour, utc_minute)
-  every 5 minutes. For each group, the stored local hour is converted
+  The HourlyScheduler calls fire_group_azkar_reminders(utc_hour)
+  once per hour. For each group, the stored local hour is converted
   to UTC using the group's tz_offset (stored in minutes, e.g. 180 = UTC+3).
-  A reminder fires when UTC hour matches and has not been sent yet this hour.
+  A reminder fires when the converted UTC hour matches and has not been
+  sent yet today for that type.
 
 Duplicate prevention:
-  _sent_log: dict[(group_id, col, date_hour_str)] → True
-  Cleared automatically — keys include the date+hour so they expire naturally.
+  _sent_log: dict[(group_id, col, "YYYY-MM-DD")] → True
+  One send per group per type per calendar day (Yemen date).
 """
 from core.bot import bot
 from database.db_queries.groups_queries import get_groups_with_reminder
@@ -38,46 +39,46 @@ _REMINDER_TYPES = [
 
 _ICONS = {0: "🌅", 1: "🌙", 2: "😴", 3: "☀️"}
 
-# ── Sent-log: prevents duplicate sends within the same UTC hour ───────────────
-# Key: (group_id, col, "YYYY-MM-DD HH") — expires naturally as the hour changes
+# ── Sent-log: one send per group per type per calendar day ────────────────────
+# Key: (group_id, col, "YYYY-MM-DD")
 _sent_log: dict[tuple, bool] = {}
 
 
-def _sent_key(group_id: int, col: str, utc_hour: int) -> tuple:
-    """Generates a dedup key scoped to the current UTC date+hour."""
-    from datetime import datetime, timezone
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return (group_id, col, f"{date_str} {utc_hour:02d}")
+def _sent_key(group_id: int, col: str) -> tuple:
+    """Generates a dedup key scoped to today's Yemen date."""
+    from datetime import datetime, timezone, timedelta
+    _YEMEN_TZ = timezone(timedelta(hours=3))
+    date_str  = datetime.now(_YEMEN_TZ).strftime("%Y-%m-%d")
+    return (group_id, col, date_str)
 
 
-def _prune_sent_log(utc_hour: int) -> None:
-    """Removes stale entries from _sent_log (older than current hour)."""
-    from datetime import datetime, timezone
-    current_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d") + f" {utc_hour:02d}"
-    stale = [k for k in _sent_log if not str(k[2]).startswith(current_prefix[:13])]
+def _prune_sent_log() -> None:
+    """Removes entries from previous days."""
+    from datetime import datetime, timezone, timedelta
+    _YEMEN_TZ   = timezone(timedelta(hours=3))
+    today       = datetime.now(_YEMEN_TZ).strftime("%Y-%m-%d")
+    stale = [k for k in _sent_log if k[2] != today]
     for k in stale:
         del _sent_log[k]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Main entry point — called by scheduler every 5 minutes
+# Main entry point — called by HourlyScheduler once per UTC hour
 # ══════════════════════════════════════════════════════════════════════════════
 
-def fire_group_azkar_reminders(utc_hour: int, utc_minute: int) -> None:
+def fire_group_azkar_reminders(utc_hour: int, utc_minute: int = 0) -> None:
     """
-    Called every 5 minutes by the scheduler.
+    Called once per UTC hour by the HourlyScheduler.
     Sends azkar reminders to groups whose configured local hour matches now.
 
-    NOTE: We do NOT gate on utc_minute == 0.
-    The scheduler fires every 5 min (at :00, :05, :10 ... or offset variants).
-    Duplicate prevention is handled by _sent_log keyed on (group, col, date+hour).
-    This guarantees delivery within the first 5-minute window of the target hour.
+    utc_minute is accepted for backward-compat but ignored — reminders are
+    hour-only and the hourly scheduler always fires at :00.
     """
-    _prune_sent_log(utc_hour)
+    _prune_sent_log()
 
     for col, zikr_type, label, command in _REMINDER_TYPES:
         try:
-            _fire_type(col, zikr_type, label, command, utc_hour, utc_minute)
+            _fire_type(col, zikr_type, label, command, utc_hour)
         except Exception as e:
             import traceback
             print(f"[AZKAR_CHECK] ❌ Error processing {col}: {e}")
@@ -85,46 +86,31 @@ def fire_group_azkar_reminders(utc_hour: int, utc_minute: int) -> None:
 
 
 def _fire_type(col: str, zikr_type: int, label: str, command: str,
-               utc_hour: int, utc_minute: int) -> None:
+               utc_hour: int) -> None:
     """Checks all groups for a single azkar type and sends if due."""
     groups = get_groups_with_reminder(col)
-
     if not groups:
         return
 
     for g in groups:
-        group_id   = g["group_id"]
-        # tz_offset is stored in MINUTES (e.g. 180 = UTC+3, 330 = UTC+5:30)
-        tz_minutes = g.get("tz_offset") or 180
-        target_local_hour = g["hour"]   # the hour admin configured (local time)
+        group_id          = g["group_id"]
+        tz_minutes        = g.get("tz_offset") or 180
+        target_local_hour = g["hour"]   # hour admin configured (local time)
 
-        # Convert current UTC time to group's local time
-        utc_total_minutes   = utc_hour * 60 + utc_minute
-        local_total_minutes = (utc_total_minutes + tz_minutes) % (24 * 60)
-        local_hour          = local_total_minutes // 60
+        # Convert target local hour → expected UTC hour
+        expected_utc_hour = (target_local_hour * 60 - tz_minutes) % (24 * 60) // 60
 
-        print(
-            f"[AZKAR_CHECK] group={group_id} col={col} "
-            f"utc={utc_hour:02d}:{utc_minute:02d} "
-            f"tz_offset={tz_minutes}min "
-            f"local={local_hour:02d}:xx "
-            f"target={target_local_hour:02d}:00"
-        )
-
-        if local_hour != target_local_hour:
-            print(f"[AZKAR_SKIPPED] group={group_id} col={col} — "
-                  f"local hour {local_hour} ≠ target {target_local_hour}")
+        if utc_hour != expected_utc_hour:
             continue
 
-        # Dedup: only send once per UTC hour per group per type
-        key = _sent_key(group_id, col, utc_hour)
+        # Dedup: only send once per day per group per type
+        key = _sent_key(group_id, col)
         if key in _sent_log:
-            print(f"[AZKAR_SKIPPED] group={group_id} col={col} — "
-                  f"already sent this hour (key={key})")
+            print(f"[AZKAR_SKIPPED] group={group_id} col={col} — already sent today")
             continue
 
         print(f"[AZKAR_MATCH] group={group_id} col={col} "
-              f"local={local_hour:02d}:00 — sending {label}")
+              f"local={target_local_hour:02d}:00 (UTC={utc_hour:02d}:00) — sending {label}")
 
         _sent_log[key] = True
         _send_reminder_message(group_id, zikr_type, label, command)

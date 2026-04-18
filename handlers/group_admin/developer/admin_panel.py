@@ -53,13 +53,30 @@ def _is_content_type(zikr_type: int) -> bool:
 def _get_content_list(page: int, per_page: int) -> tuple[list, int]:
     """يجلب صفحة من azkar_content."""
     cur = _get_db_conn().cursor()
-    cur.execute("SELECT COUNT(*) FROM azkar_content")
-    total = cur.fetchone()[0]
-    cur.execute("SELECT id, content FROM azkar_content ORDER BY id LIMIT ? OFFSET ?",
-                (per_page, page * per_page))
-    items = [{"id": r[0], "text": r[1], "repeat_count": 1, "zikr_type": 4}
-             for r in cur.fetchall()]
+
+    # العدد الكلي
+    cur.execute("SELECT COUNT(*) as total FROM azkar_content")
+    row = cur.fetchone()
+    total = row["total"]
+
+    # البيانات
+    cur.execute(
+        "SELECT id, content FROM azkar_content ORDER BY id LIMIT %s OFFSET %s",
+        (per_page, page * per_page)
+    )
+
+    items = [
+        {
+            "id": r["id"],
+            "text": r["content"],
+            "repeat_count": 1,
+            "zikr_type": 4
+        }
+        for r in cur.fetchall()
+    ]
+
     return items, total
+
 
 def _back(action, data, owner):
     return btn("🔙 رجوع", action, data, color=_RED, owner=owner)
@@ -126,11 +143,11 @@ def show_constants(call, data):
                                owner=owner, color=_BLUE))
 
     nav = []
-    if page < total_pages - 1:
-        nav.append(btn("التالي", "adm_constants", data={"page": page+1}, owner=owner))
-    nav.append(_back("adm_main_back", {}, owner))
     if page > 0:
         nav.append(btn("السابق", "adm_constants", data={"page": page-1}, owner=owner))
+    nav.append(_back("adm_main_back", {}, owner))
+    if page < total_pages - 1:
+        nav.append(btn("التالي", "adm_constants", data={"page": page+1}, owner=owner))
 
     # أزرار الثوابت: 4 في كل صف
     btn_rows = [4] * (len(buttons) // 4)

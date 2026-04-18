@@ -75,17 +75,20 @@ def show_sura_selector(
 
     # أزرار التنقل
     nav = []
-    if page < total_pages - 1:
-        nav.append(btn("التالي ◀️", page_action,
-                       {"p": page + 1, "act": callback_action,
-                        "cact": cancel_action, "pact": page_action},
-                       color=_G, owner=owner))
-    nav.append(btn("❌ إلغاء", cancel_action, {}, color=_R, owner=owner))
     if page > 0:
         nav.append(btn("▶️ السابق", page_action,
                        {"p": page - 1, "act": callback_action,
                         "cact": cancel_action, "pact": page_action},
                        color=_G, owner=owner))
+    
+    nav.append(btn("❌ إلغاء", cancel_action, {}, color=_R, owner=owner))
+    
+    if page < total_pages - 1:
+        nav.append(btn("التالي ◀️", page_action,
+                       {"p": page + 1, "act": callback_action,
+                        "cact": cancel_action, "pact": page_action},
+                       color=_G, owner=owner))
+    
     buttons.extend(nav)
 
     sura_count = len(items)

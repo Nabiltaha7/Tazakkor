@@ -24,7 +24,7 @@ def get_bot_constant(name: str) -> str | None:
 
 
 def set_bot_constant(name: str, value: str, description: str = "") -> None:
-    """يُدرج أو يُحدّث إعداد بوت."""
+    """يُدرج أو يُحدّث إعداد بوت ويُحدّث الذاكرة فوراً."""
     db_execute(
         """
         INSERT INTO bot_constants (name, value, description, updated_at)
@@ -35,6 +35,12 @@ def set_bot_constant(name: str, value: str, description: str = "") -> None:
         """,
         (name, value, description)
     )
+    # Update in-memory cache immediately — no need to wait for next sync cycle
+    try:
+        from core.config import set_config
+        set_config(name, value)
+    except Exception as e:
+        print(f"[Config] Failed to update in-memory cache for {name!r}: {e}")
 
 
 def get_all_constants() -> list[dict]:

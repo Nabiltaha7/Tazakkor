@@ -42,10 +42,10 @@ def show_developer(message) -> None:
         if photos.total_count > 0:
             file_id = photos.photos[0][-1].file_id
             send_ui(chat_id=message.chat.id, text=text,
-                    photo=file_id, buttons=buttons, layout=[1, 1])
+                    photo=file_id, buttons=buttons, layout=[1, 1], msg_id=message.message_id)
         else:
             send_ui(chat_id=message.chat.id, text=text,
-                    buttons=buttons, layout=[1, 1])
+                    buttons=buttons, layout=[1, 1], msg_id=message.message_id)
 
     except Exception as e:
         bot.send_message(message.chat.id, f"⚠️ خطأ: {e}")

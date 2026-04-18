@@ -10,7 +10,7 @@ handlers/group_admin/group_commands_panel.py
   🔔 تفعيل / إيقاف الأذكار التلقائية (azkar_content)
 """
 from core.bot import bot
-from handlers.group_admin.permissions import is_admin, can_pin_messages
+from handlers.group_admin.permissions import is_admin, is_developer, can_pin_messages
 from database.db_queries.groups_queries import (
     get_group_settings, update_group_setting, get_internal_group_id,
 )
@@ -52,7 +52,7 @@ def open_commands_panel(message) -> bool:
     uid = message.from_user.id
     cid = message.chat.id
 
-    if not is_admin(message):
+    if not is_admin(message) or not is_developer(message):
         bot.reply_to(message, "❌ هذا الأمر للمشرفين فقط.")
         return True
 

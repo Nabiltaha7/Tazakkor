@@ -90,26 +90,27 @@ def send_ui(
     photo=None,
     buttons: list = None,
     layout: list = None,
+    msg_id=None,
 ):
     """
     Sends a message or photo with an optional keyboard.
-    For paginated panels with owner checks, use utils.pagination.send_ui instead.
+    If reply_to is provided → reply to that message.
     """
     markup = build_keyboard(buttons, layout or [1]) if buttons else None
 
-    if photo:
-        return bot.send_photo(
-            chat_id, photo,
-            caption=text,
-            reply_markup=markup,
-            parse_mode="HTML",
-        )
-    return bot.send_message(
-        chat_id, text,
-        reply_markup=markup,
-        parse_mode="HTML",
-    )
+    kwargs = {
+        "chat_id": chat_id,
+        "reply_markup": markup,
+        "parse_mode": "HTML",
+    }
 
+    if msg_id:
+            kwargs["reply_to_message_id"] = msg_id
+
+    if photo:
+        return bot.send_photo(photo=photo, caption=text, **kwargs)
+
+    return bot.send_message(text=text, **kwargs )
 
 def edit_ui(
     call,
