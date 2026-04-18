@@ -1,11 +1,3 @@
-"""
-database/db_scheme/groups_tables.py
-─────────────────────────────────────
-جداول المجموعات — PostgreSQL
-
-Tables:
-  - groups : المجموعات التي يعمل فيها البوت
-"""
 from database.connection import get_db_conn
 
 
