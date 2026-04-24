@@ -30,7 +30,12 @@ _ZIKR_TYPES = {
 }
 
 # ── فترات الإرسال المسموحة (دقائق) ────────────────────────────────
-_INTERVALS = [5, 10, 15, 20, 25, 30]
+_INTERVALS = [5, 10, 15, 20, 25, 30, 60]
+
+
+def _fmt_interval(minutes: int) -> str:
+    """يُنسّق فترة الإرسال بالعربية — ساعة كاملة أو دقائق."""
+    return "كل ساعة" if minutes == 60 else f"كل {minutes} دقيقة"
 
 # ── ساعات التذكير المتاحة (0-23) ───────────────────────────────────
 _HOURS = list(range(0, 24))
@@ -73,7 +78,7 @@ def _send_main_panel(message):
 
     tz_label      = _fmt_tz(s["tz_offset"])
     azkar_label   = "✅ مفعّل" if s["azkar_enabled"] else "❌ موقوف"
-    interval_label = f"{s['azkar_interval']} دقيقة"
+    interval_label = _fmt_interval(s["azkar_interval"])
 
     text = (
         f"⚙️ <b>إعدادات المجموعة</b>\n{get_lines()}\n\n"
@@ -302,12 +307,12 @@ def on_interval_panel(call, data):
 
     text = (
         f"⏱ <b>فترة إرسال الأذكار التلقائية</b>\n{get_lines()}\n\n"
-        f"الحالية: <b>{current} دقيقة</b>\n\n"
+        f"الحالية: <b>{_fmt_interval(current)}</b>\n\n"
         f"اختر الفترة:"
     )
     buttons = [
         btn(
-            f"{'✅ ' if v == current else ''}{v} دقيقة",
+            f"{'✅ ' if v == current else ''}{_fmt_interval(v)}",
             "grp_set_interval", {"val": v},
             owner=owner,
             color=_G if v == current else _B
@@ -316,8 +321,9 @@ def on_interval_panel(call, data):
     ]
     buttons.append(btn("🔙 رجوع", "grp_main_back", {}, owner=owner, color=_R))
 
+    # 6 minute-options (3+3) then the hour option alone, then back
     bot.answer_callback_query(call.id)
-    edit_ui(call, text=text, buttons=buttons, layout=[3, 3, 1])
+    edit_ui(call, text=text, buttons=buttons, layout=[3, 3, 1, 1])
 
 
 @register_action("grp_set_interval")
@@ -340,7 +346,7 @@ def on_set_interval(call, data):
     except Exception:
         pass
 
-    bot.answer_callback_query(call.id, f"✅ تم ضبط الفترة: {val} دقيقة", show_alert=True)
+    bot.answer_callback_query(call.id, f"✅ تم ضبط الفترة: {_fmt_interval(val)}", show_alert=True)
     on_interval_panel(call, {})
 
 
@@ -384,7 +390,7 @@ def on_main_back(call, data):
 
     tz_label      = _fmt_tz(s["tz_offset"])
     azkar_label   = "✅ مفعّل" if s["azkar_enabled"] else "❌ موقوف"
-    interval_label = f"{s['azkar_interval']} دقيقة"
+    interval_label = _fmt_interval(s["azkar_interval"])
 
     text = (
         f"⚙️ <b>إعدادات المجموعة</b>\n{get_lines()}\n\n"
