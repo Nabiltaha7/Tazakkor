@@ -1,5 +1,18 @@
 """
-معالج نظام إنجاز القرآن — التفاعل مع البوت فقط
+modules/quran/quran_handler.py
+────────────────────────────────
+معالج نظام القرآن — التفاعل مع البوت فقط.
+
+الميزات المدعومة:
+  - ختمتي / إعدادات ختمة / تذكير ختمتي  (khatmah.py)
+  - قراءة سورة                            (surah_reader.py)
+  - مفضلتي                                (favorites)
+  - آية [بحث]                             (search)
+  - إضافة آيات / إضافة تفسير             (dev — content management)
+  - اضف آيات / عدل آية / عدل تفسير       (dev — text commands)
+
+NOTE: "تلاوة" and "مسح تلاوتي" are intentionally removed.
+      Favorites and search are independent features — NOT tilawa.
 """
 from core.bot import bot
 from core.admin import is_any_dev
@@ -24,70 +37,46 @@ _PER_PAGE = 5
 
 
 # ══════════════════════════════════════════
-# 📖 التلاوة
+# 🔙 Navigation callbacks (used by search & favorites)
 # ══════════════════════════════════════════
 
-def handle_tilawa(message) -> bool:
-    """أمر: تلاوة"""
-    if (message.text or "").strip() != "تلاوة":
-        return False
-
-    uid = message.from_user.id
-    cid = message.chat.id
-
-    ayah = svc.get_current_ayah(uid)
-    if not ayah:
-        bot.reply_to(message,
-                     "📖 لا توجد آيات في قاعدة البيانات بعد.\n"
-                     "يمكن للمطور إضافة آيات باستخدام أمر الإضافة.")
-        return True
-
-    _send_ayah(message, uid, cid, ayah, reply_to=message.message_id)
-    return True
-
-
-def _send_ayah(message_or_none, uid: int, cid: int, ayah: dict,
-               reply_to: int = None, edit_call=None,
-               source: str = None, fav_page: int = 0):
-    """يرسل أو يعدّل رسالة الآية."""
+def _send_ayah(uid: int, cid: int, ayah: dict,
+               edit_call=None, reply_to: int = None,
+               source: str = None, fav_page: int = 0,
+               with_tashkeel: bool = True):
+    """يرسل أو يعدّل رسالة الآية — مستخدمة من البحث والمفضلة."""
     total    = db.get_total_ayat()
     is_fav   = db.is_favorite(uid, ayah["id"])
     has_prev = db.get_prev_ayah(ayah["id"]) is not None
     has_next = db.get_next_ayah(ayah["id"]) is not None
 
     text, (buttons, layout) = (
-        ui.build_ayah_text(ayah, total),
+        ui.build_ayah_text(ayah, total, with_tashkeel=with_tashkeel),
         ui.build_ayah_buttons(uid, cid, ayah, is_fav, has_prev, has_next,
                               source=source, fav_page=fav_page),
     )
 
     if edit_call:
         edit_ui(edit_call, text=text, buttons=buttons, layout=layout)
-        if source not in ("favorites", "search"):
-            svc.save_position(uid, ayah["id"], edit_call.message.message_id)
-            db.update_khatma(uid, ayah["sura_id"], ayah["ayah_number"])
     else:
-        sent = send_ui(cid, text=text, buttons=buttons, layout=layout,
-                       owner_id=uid, reply_to=reply_to)
-        if sent and source not in ("favorites", "search"):
-            svc.save_position(uid, ayah["id"], sent.message_id)
-            db.update_khatma(uid, ayah["sura_id"], ayah["ayah_number"])
+        send_ui(cid, text=text, buttons=buttons, layout=layout,
+                owner_id=uid, reply_to=reply_to)
 
-
-# ── التنقل ──
 
 @register_action("qr_next")
 def on_next(call, data):
     uid  = call.from_user.id
     cid  = call.message.chat.id
     aid  = data.get("aid")
+    wt   = bool(int(data.get("wt", 1)))
     ayah = db.get_next_ayah(aid)
     if not ayah:
         bot.answer_callback_query(call.id, "✅ وصلت لآخر آية!", show_alert=True)
         return
     bot.answer_callback_query(call.id)
-    _send_ayah(None, uid, cid, ayah, edit_call=call,
-               source=data.get("src"), fav_page=data.get("fp", 0))
+    _send_ayah(uid, cid, ayah, edit_call=call,
+               source=data.get("src"), fav_page=data.get("fp", 0),
+               with_tashkeel=wt)
 
 
 @register_action("qr_prev")
@@ -95,13 +84,15 @@ def on_prev(call, data):
     uid  = call.from_user.id
     cid  = call.message.chat.id
     aid  = data.get("aid")
+    wt   = bool(int(data.get("wt", 1)))
     ayah = db.get_prev_ayah(aid)
     if not ayah:
         bot.answer_callback_query(call.id, "⬅️ هذه أول آية.", show_alert=True)
         return
     bot.answer_callback_query(call.id)
-    _send_ayah(None, uid, cid, ayah, edit_call=call,
-               source=data.get("src"), fav_page=data.get("fp", 0))
+    _send_ayah(uid, cid, ayah, edit_call=call,
+               source=data.get("src"), fav_page=data.get("fp", 0),
+               with_tashkeel=wt)
 
 
 @register_action("qr_goto_ayah")
@@ -109,13 +100,15 @@ def on_goto(call, data):
     uid  = call.from_user.id
     cid  = call.message.chat.id
     aid  = data.get("aid")
+    wt   = bool(int(data.get("wt", 1)))
     ayah = db.get_ayah(aid)
     if not ayah:
         bot.answer_callback_query(call.id, "❌ الآية غير موجودة.", show_alert=True)
         return
     bot.answer_callback_query(call.id)
-    _send_ayah(None, uid, cid, ayah, edit_call=call,
-               source=data.get("src"), fav_page=data.get("fp", 0))
+    _send_ayah(uid, cid, ayah, edit_call=call,
+               source=data.get("src"), fav_page=data.get("fp", 0),
+               with_tashkeel=wt)
 
 
 @register_action("qr_back_to_ayah")
@@ -123,13 +116,15 @@ def on_back_to_ayah(call, data):
     uid  = call.from_user.id
     cid  = call.message.chat.id
     aid  = data.get("aid")
+    wt   = bool(int(data.get("wt", 1)))
     ayah = db.get_ayah(aid)
     if not ayah:
         bot.answer_callback_query(call.id, "❌ الآية غير موجودة.", show_alert=True)
         return
     bot.answer_callback_query(call.id)
-    _send_ayah(None, uid, cid, ayah, edit_call=call,
-               source=data.get("src"), fav_page=data.get("fp", 0))
+    _send_ayah(uid, cid, ayah, edit_call=call,
+               source=data.get("src"), fav_page=data.get("fp", 0),
+               with_tashkeel=wt)
 
 
 @register_action("qr_close")
@@ -150,14 +145,16 @@ def on_fav(call, data):
     uid = call.from_user.id
     cid = call.message.chat.id
     aid = data.get("aid")
+    wt  = bool(int(data.get("wt", 1)))
 
     is_now_fav, msg = svc.toggle_favorite(uid, aid)
     bot.answer_callback_query(call.id, msg, show_alert=False)
 
     ayah = db.get_ayah(aid)
     if ayah:
-        _send_ayah(None, uid, cid, ayah, edit_call=call,
-                   source=data.get("src"), fav_page=data.get("fp", 0))
+        _send_ayah(uid, cid, ayah, edit_call=call,
+                   source=data.get("src"), fav_page=data.get("fp", 0),
+                   with_tashkeel=wt)
 
 
 def handle_my_favorites(message) -> bool:
@@ -173,14 +170,21 @@ def handle_my_favorites(message) -> bool:
         bot.reply_to(message, "⭐️ مفضلتك فارغة.\nاضغط ⭐️ على أي آية لإضافتها.")
         return True
 
-    _show_favorites(message, uid, cid, favs, page=0, reply_to=message.message_id)
+    # Fetch preference once at session start
+    from modules.quran.tashkeel_pref import get_pref
+    with_tashkeel = get_pref(uid, "ayah_search")
+
+    _show_favorites(uid, cid, favs, page=0, reply_to=message.message_id,
+                    with_tashkeel=with_tashkeel)
     return True
 
 
-def _show_favorites(message_or_none, uid: int, cid: int,
-                    favs: list, page: int, reply_to: int = None, edit_call=None):
+def _show_favorites(uid: int, cid: int, favs: list,
+                    page: int, reply_to: int = None, edit_call=None,
+                    with_tashkeel: bool = True):
     items, total_pages = paginate_list(favs, page, per_page=_PER_PAGE)
-    text    = ui.build_favorites_text(items, page, total_pages)
+    text    = ui.build_favorites_text(items, page, total_pages,
+                                      with_tashkeel=with_tashkeel)
     buttons, layout = ui.build_favorites_buttons(uid, cid, items, page, total_pages)
 
     if edit_call:
@@ -197,7 +201,9 @@ def on_fav_page(call, data):
     page = int(data.get("p", 0))
     favs = svc.get_user_favorites(uid)
     bot.answer_callback_query(call.id)
-    _show_favorites(None, uid, cid, favs, page, edit_call=call)
+    from modules.quran.tashkeel_pref import get_pref
+    _show_favorites(uid, cid, favs, page, edit_call=call,
+                    with_tashkeel=get_pref(uid, "ayah_search"))
 
 
 @register_action("qr_back_favorites")
@@ -210,12 +216,13 @@ def on_back_favorites(call, data):
     if not favs:
         bot.answer_callback_query(call.id, "⭐️ مفضلتك فارغة.", show_alert=True)
         return
-    _show_favorites(None, uid, cid, favs, page, edit_call=call)
+    from modules.quran.tashkeel_pref import get_pref
+    _show_favorites(uid, cid, favs, page, edit_call=call,
+                    with_tashkeel=get_pref(uid, "ayah_search"))
 
 
 @register_action("qr_fav_clear_prompt")
 def on_fav_clear_prompt(call, data):
-    """يعرض أزرار تأكيد مسح المفضلة"""
     uid   = call.from_user.id
     cid   = call.message.chat.id
     page  = int(data.get("p", 0))
@@ -234,10 +241,8 @@ def on_fav_clear_prompt(call, data):
 
 @register_action("qr_fav_clear_confirm")
 def on_fav_clear_confirm(call, data):
-    """يحذف جميع مفضلات المستخدم"""
     uid  = call.from_user.id
     cid  = call.message.chat.id
-    page = int(data.get("p", 0))
     deleted = db.clear_favorites(uid)
     bot.answer_callback_query(call.id,
                               f"✅ تم مسح {deleted} آية من مفضلتك." if deleted
@@ -251,7 +256,6 @@ def on_fav_clear_confirm(call, data):
 
 @register_action("qr_fav_clear_cancel")
 def on_fav_clear_cancel(call, data):
-    """يرجع لقائمة المفضلة بدون حذف"""
     uid  = call.from_user.id
     cid  = call.message.chat.id
     page = int(data.get("p", 0))
@@ -263,11 +267,11 @@ def on_fav_clear_cancel(call, data):
         except Exception:
             pass
         return
-    _show_favorites(None, uid, cid, favs, page, edit_call=call)
+    _show_favorites(uid, cid, favs, page, edit_call=call)
 
 
 # ══════════════════════════════════════════
-# 📖 التفسير
+# 📖 التفسير (مستخدم من البحث والمفضلة)
 # ══════════════════════════════════════════
 
 @register_action("qr_tafseer")
@@ -275,6 +279,7 @@ def on_tafseer(call, data):
     uid  = call.from_user.id
     cid  = call.message.chat.id
     aid  = data.get("aid")
+    wt   = bool(int(data.get("wt", 1)))
     ayah = db.get_ayah(aid)
 
     if not ayah:
@@ -283,11 +288,8 @@ def on_tafseer(call, data):
 
     available = svc.get_available_tafseer(ayah)
     if not available:
-        bot.answer_callback_query(
-            call.id,
-            "لم يتم إضافة تفسير بعد لهذه الآية",
-            show_alert=True,
-        )
+        bot.answer_callback_query(call.id, "لم يتم إضافة تفسير بعد لهذه الآية",
+                                  show_alert=True)
         return
 
     sura      = db.get_sura(ayah["sura_id"])
@@ -295,21 +297,22 @@ def on_tafseer(call, data):
     source    = data.get("src")
     fav_page  = data.get("fp", 0)
 
+    from modules.quran.tashkeel_pref import apply_pref
+    ayah_text = apply_pref(ayah["text_with_tashkeel"], wt)
+
     buttons, layout = ui.build_tafseer_buttons(uid, cid, ayah,
-                                               source=source, fav_page=fav_page)
+                                               source=source, fav_page=fav_page,
+                                               with_tashkeel=wt)
     bot.answer_callback_query(call.id)
-    edit_ui(
-        call,
-        text=(
-            f"📖 <b>{sura_name}</b> — آية {ayah['ayah_number']}\n"
-            f"{get_lines()}\n\n"
-            f"{ayah['text_with_tashkeel']}\n\n"
-            f"{get_lines()}\n"
-            f"اختر التفسير:"
-        ),
-        buttons=buttons,
-        layout=layout,
-    )
+    edit_ui(call,
+            text=(
+                f"📖 <b>{sura_name}</b> — آية {ayah['ayah_number']}\n"
+                f"{get_lines()}\n\n"
+                f"{ayah_text}\n\n"
+                f"{get_lines()}\n"
+                f"اختر التفسير:"
+            ),
+            buttons=buttons, layout=layout)
 
 
 @register_action("qr_show_tafseer")
@@ -318,6 +321,7 @@ def on_show_tafseer(call, data):
     cid  = call.message.chat.id
     aid  = data.get("aid")
     col  = data.get("col")
+    wt   = bool(int(data.get("wt", 1)))
     ayah = db.get_ayah(aid)
 
     if not ayah or not col:
@@ -336,29 +340,31 @@ def on_show_tafseer(call, data):
     fav_page  = data.get("fp", 0)
     owner     = (uid, cid)
 
-    back_ctx = {"aid": aid}
+    from modules.quran.tashkeel_pref import apply_pref
+    ayah_text = apply_pref(ayah["text_with_tashkeel"], wt)
+
+    back_ctx = {"aid": aid, "wt": int(wt)}
     if source:
         back_ctx["src"] = source
         back_ctx["fp"]  = fav_page
 
     bot.answer_callback_query(call.id)
-    edit_ui(
-        call,
-        text=(
-            f"📖 <b>تفسير {name_ar}</b>\n"
-            f"<b>{sura_name}</b> — آية {ayah['ayah_number']}\n"
-            f"{get_lines()}\n\n"
-            f"{ayah['text_with_tashkeel']}\n\n"
-            f"{get_lines()}\n"
-            f"📝 <b>التفسير:</b>\n{content}"
-        ),
-        buttons=[btn("🔙 رجوع للتفاسير", "qr_tafseer", back_ctx, color=_R, owner=owner)],
-        layout=[1],
-    )
+    edit_ui(call,
+            text=(
+                f"📖 <b>تفسير {name_ar}</b>\n"
+                f"<b>{sura_name}</b> — آية {ayah['ayah_number']}\n"
+                f"{get_lines()}\n\n"
+                f"{ayah_text}\n\n"
+                f"{get_lines()}\n"
+                f"📝 <b>التفسير:</b>\n{content}"
+            ),
+            buttons=[btn("🔙 رجوع للتفاسير", "qr_tafseer", back_ctx,
+                         color=_R, owner=owner)],
+            layout=[1])
 
 
 # ══════════════════════════════════════════
-# 🔍 البحث
+# 🔍 البحث في القرآن
 # ══════════════════════════════════════════
 
 def handle_search(message) -> bool:
@@ -373,31 +379,36 @@ def handle_search(message) -> bool:
                      parse_mode="HTML")
         return True
 
-    uid             = message.from_user.id
-    cid             = message.chat.id
-    results, total  = svc.search(query)
+    uid            = message.from_user.id
+    cid            = message.chat.id
+    results, total = svc.search(query)
 
     if not results:
-        bot.reply_to(
-            message,
-            f"🔍 لم يتم العثور على نتائج لـ: <b>{query}</b>",
-            parse_mode="HTML",
-        )
+        bot.reply_to(message,
+                     f"🔍 لم يتم العثور على نتائج لـ: <b>{query}</b>",
+                     parse_mode="HTML")
         return True
 
-    _show_search_results(message, uid, cid, query, results, total, page=0,
-                         reply_to=message.message_id)
+    # Fetch preference once at session start
+    from modules.quran.tashkeel_pref import get_pref
+    with_tashkeel = get_pref(uid, "ayah_search")
+
+    _show_search_results(uid, cid, query, results, total,
+                         page=0, reply_to=message.message_id,
+                         with_tashkeel=with_tashkeel)
     return True
 
 
-def _show_search_results(message_or_none, uid: int, cid: int,
-                          query: str, results: list, total_occurrences: int,
-                          page: int, reply_to: int = None, edit_call=None):
+def _show_search_results(uid: int, cid: int, query: str,
+                          results: list, total_occurrences: int,
+                          page: int, reply_to: int = None, edit_call=None,
+                          with_tashkeel: bool = True):
     items, total_pages = paginate_list(results, page, per_page=_PER_PAGE)
     text    = ui.build_search_result_text(items, page, total_pages,
                                           query=query,
                                           ayat_count=len(results),
-                                          total_occurrences=total_occurrences)
+                                          total_occurrences=total_occurrences,
+                                          with_tashkeel=with_tashkeel)
     buttons, layout = ui.build_search_buttons(uid, cid, query, page, total_pages, items)
 
     if edit_call:
@@ -416,59 +427,17 @@ def on_search_page(call, data):
 
     results, total = svc.search(query)
     bot.answer_callback_query(call.id)
-    _show_search_results(None, uid, cid, query, results, total, page, edit_call=call)
-
-
-# ══════════════════════════════════════════
-# 🔁 مسح التقدم
-# ══════════════════════════════════════════
-
-def handle_reset(message) -> bool:
-    """أمر: مسح تلاوتي"""
-    if (message.text or "").strip() != "مسح تلاوتي":
-        return False
-
-    uid   = message.from_user.id
-    cid   = message.chat.id
-    owner = (uid, cid)
-
-    send_ui(
-        cid,
-        text=(
-            "🔁 <b>مسح تقدم التلاوة</b>\n\n"
-            "هل تريد إعادة ضبط تقدمك والبدء من أول آية؟\n"
-            "⚠️ لا يمكن التراجع عن هذا الإجراء."
-        ),
-        buttons=[
-            btn("✅ نعم، امسح تقدمي", "qr_confirm_reset", {}, color=_R, owner=owner),
-            btn("❌ إلغاء",            "qr_close",         {}, color=_B, owner=owner),
-        ],
-        layout=[2],
-        owner_id=uid,
-        reply_to=message.message_id,
-    )
-    return True
-
-
-@register_action("qr_confirm_reset")
-def on_confirm_reset(call, data):
-    uid = call.from_user.id
-    svc.reset_user(uid)
-    bot.answer_callback_query(call.id, "✅ تم مسح تقدمك.", show_alert=True)
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
-
-
-# ══════════════════════════════════════════
-# 🛠 إدارة المحتوى (للمطورين)
-# ══════════════════════════════════════════
+    from modules.quran.tashkeel_pref import get_pref
+    _show_search_results(uid, cid, query, results, total, page, edit_call=call,
+                         with_tashkeel=get_pref(uid, "ayah_search"))
 
 def handle_dev_quran_input(message) -> bool:
     """
     يعالج حالات الانتظار الخاصة بإدارة القرآن.
     يرجع True إذا تم التعامل مع الرسالة.
+
+    Only handles states whose type starts with "qr_dev_".
+    Uses StateManager.is_state to avoid intercepting other features' states.
     """
     uid = message.from_user.id
     cid = message.chat.id
@@ -476,15 +445,22 @@ def handle_dev_quran_input(message) -> bool:
     if not is_any_dev(uid):
         return False
 
-    state = get_state(uid, cid)
-    if not state or "state" not in state:
+    # Use StateManager directly — only claim qr_dev_* states
+    from core.state_manager import StateManager
+    current = StateManager.get(uid, cid)
+    if not current:
         return False
 
-    s     = state["state"]
-    sdata = state.get("data", {})
-
+    s = current.get("type", "")
     if not s.startswith("qr_dev_"):
         return False
+
+    # Reconstruct sdata from StateManager format for backward-compat
+    sdata = dict(current.get("extra") or {})
+    if current.get("mid") is not None:
+        sdata["_mid"] = current["mid"]
+    if current.get("step") is not None:
+        sdata["_step"] = current["step"]
 
     raw  = (message.text or "").strip()
     mid  = sdata.get("_mid")
@@ -505,7 +481,8 @@ def handle_dev_quran_input(message) -> bool:
     # ── الآن فقط: مسح الحالة + حذف رسالة المستخدم ──
     from utils.logger import log_event
     log_event("quran_input_handler", state=s)
-    clear_state(uid, cid)
+    # Clear only this feature's state — never touch other features' states
+    StateManager.clear_if_type(uid, cid, s)
 
     try:
         bot.delete_message(cid, message.message_id)
@@ -1062,21 +1039,27 @@ def handle_quran_commands(message) -> bool:
     يرجع True إذا تم التعامل مع الأمر.
     """
     text = (message.text or "").strip()
+    uid  = message.from_user.id
+    cid  = message.chat.id
 
-    if text == "تلاوة":
-        return handle_tilawa(message)
-    if text == "مسح تلاوتي":
-        return handle_reset(message)
     if text == "مفضلتي":
         return handle_my_favorites(message)
+    if text.startswith("آية "):
+        return handle_search(message)
     if text == "إضافة تفسير":
         return handle_add_tafseer(message)
     if text == "إضافة آيات":
         return handle_add_ayat(message)
     if text == "قراءة سورة":
+        # Clear only read_surah state — never touch khatmah state
+        from core.state_manager import StateManager
+        StateManager.clear_if_type(uid, cid, "read_surah_flow")
         from modules.quran.surah_reader import handle_surah_read_command
         return handle_surah_read_command(message)
     if text == "ختمتي":
+        # Clear only khatma state — never touch read_surah state
+        from core.state_manager import StateManager
+        StateManager.clear_if_type(uid, cid, "khatma_flow")
         from modules.quran.khatmah import handle_khatmah_read_command
         return handle_khatmah_read_command(message)
     if text in ["إعدادات ختمة", "اعدادات ختمة"]:
@@ -1085,8 +1068,9 @@ def handle_quran_commands(message) -> bool:
     if text == "تذكير ختمتي":
         from modules.quran.khatmah import handle_khatmah_reminder_command
         return handle_khatmah_reminder_command(message)
-    if text.startswith("آية "):
-        return handle_search(message)
+    if text == "تشكيل الآيات":
+        from modules.quran.tashkeel_pref import handle_tashkeel_command
+        return handle_tashkeel_command(message)
     if is_any_dev(message.from_user.id):
         if (text.startswith("اضف آيات ") or
                 text.startswith("عدل آية ") or

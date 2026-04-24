@@ -64,7 +64,13 @@ from database.db_queries.quran_queries import (
     get_due_khatma_reminders,
     # الإنجازات
     check_new_achievements,
+    # تفضيلات التشكيل
+    get_quran_pref,
+    set_quran_pref,
 )
+
+# ── alias للتوافق مع الكود القديم ──────────────────────────────────
+get_next_ayah_number = get_next_ayah_number_in_sura
 
 # ── ثوابت وأسماء السور (مُستخدَمة في seed وغيره) ──────────────────
 BULK_SEPARATOR = "---"

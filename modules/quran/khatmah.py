@@ -69,8 +69,13 @@ def handle_khatmah_read_command(message) -> bool:
         bot.reply_to(message, "📖 لا توجد آيات في قاعدة البيانات بعد.")
         return True
 
+    # Read preference once at session start — no per-ayah DB queries
+    from modules.quran.tashkeel_pref import get_pref
+    with_tashkeel = get_pref(uid, "khatma")
+
     from modules.quran.surah_reader import _show_khatmah_ayah
-    _show_khatmah_ayah(uid, cid, ayah, reply_to=message.message_id)
+    _show_khatmah_ayah(uid, cid, ayah, reply_to=message.message_id,
+                       with_tashkeel=with_tashkeel)
     _announce_achievements(uid, cid)
     return True
 
@@ -192,8 +197,10 @@ def on_continue(call, data):
     if not ayah:
         bot.answer_callback_query(call.id, "❌ لا توجد آيات.", show_alert=True)
         return
+    from modules.quran.tashkeel_pref import get_pref
     from modules.quran.surah_reader import _show_khatmah_ayah
-    _show_khatmah_ayah(uid, cid, ayah, call=call, returned=True)
+    _show_khatmah_ayah(uid, cid, ayah, call=call, returned=True,
+                       with_tashkeel=get_pref(uid, "khatma"))
 
 
 @register_action("kh_close")

@@ -69,46 +69,6 @@ def normalize_text(text: str) -> str:
 
 
 # ══════════════════════════════════════════
-# التلاوة
-# ══════════════════════════════════════════
-
-def get_current_ayah(user_id: int) -> Optional[dict]:
-    """يرجع الآية الحالية للمستخدم (أو الأولى إذا لم يبدأ بعد)."""
-    progress = db.get_progress(user_id)
-    if progress:
-        ayah = db.get_ayah(progress["last_ayah_id"])
-        return ayah
-    # لا يوجد تقدم — ابدأ من الأولى
-    return db.get_first_ayah()
-
-
-def navigate(user_id: int, direction: str) -> Optional[dict]:
-    """
-    direction: 'next' | 'prev'
-    يرجع الآية الجديدة أو None إذا لم توجد.
-    """
-    progress = db.get_progress(user_id)
-    current_id = progress["last_ayah_id"] if progress else (
-        db.get_first_ayah() or {"id": 0}
-    )["id"]
-
-    if direction == "next":
-        ayah = db.get_next_ayah(current_id)
-    else:
-        ayah = db.get_prev_ayah(current_id)
-
-    return ayah
-
-
-def save_position(user_id: int, ayah_id: int, message_id: int = None):
-    db.save_progress(user_id, ayah_id, message_id)
-
-
-def reset_user(user_id: int):
-    db.reset_progress(user_id)
-
-
-# ══════════════════════════════════════════
 # المفضلة
 # ══════════════════════════════════════════
 
@@ -141,15 +101,12 @@ def search(query: str) -> tuple[list[dict], int]:
     - query بدون مسافة نهائية → بحث جزئي (LIKE %كلمة%)
     - query بمسافة نهائية     → بحث بحدود الكلمة (لا يطابق وقالوا)
     """
-    # حذف كلمة "آية" من بداية الاستعلام إذا وُجدت
     q = query
     if q.lstrip().startswith("آية "):
         q = q.lstrip()[4:]
 
-    # هل المستخدم أضاف مسافة نهائية قصداً؟
     word_boundary = q.endswith(" ")
-
-    normalized = normalize_arabic(q)   # normalize يضغط المسافات تلقائياً
+    normalized    = normalize_arabic(q)
     if len(normalized) < 2:
         return [], 0
 

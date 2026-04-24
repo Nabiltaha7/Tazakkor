@@ -34,6 +34,9 @@ def send_periodic_azkar():
     يُرسَل من المُجدوِل كل 5 دقائق.
     يرسل ذكراً لكل مجموعة فعّلت azkar_enabled مع احترام الفترة الزمنية لكل مجموعة.
     الحد الأدنى للفترة: 5 دقائق (300 ثانية) — لا يمكن تجاوزه.
+
+    NOTE: General azkar (azkar_content) are NEVER pinned.
+    Only the four scheduled categories (morning/evening/sleep/wakeup) pin.
     """
     now = time.time()
 
@@ -44,7 +47,7 @@ def send_periodic_azkar():
 
     for tg_group_id in group_ids:
         try:
-            enabled  = get_group_setting(tg_group_id, "azkar_enabled")
+            enabled = get_group_setting(tg_group_id, "azkar_enabled")
             if not enabled:
                 continue
 
@@ -60,8 +63,13 @@ def send_periodic_azkar():
             if not row:
                 continue
 
-            bot.send_message(tg_group_id, f"📿<b>\n\n{row['content']}</b>", parse_mode="HTML")
+            bot.send_message(
+                tg_group_id,
+                f"📿<b>\n\n{row['content']}</b>",
+                parse_mode="HTML",
+            )
             _last_sent[tg_group_id] = now
+
         except Exception as e:
             print(f"[AzkarSender] فشل الإرسال للمجموعة {tg_group_id}: {e}")
 

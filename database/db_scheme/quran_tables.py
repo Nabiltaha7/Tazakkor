@@ -180,4 +180,16 @@ def create_quran_tables() -> None:
     )
     """)
 
+    # ──────────────────────────────────────────────────────────────
+    # TABLE: user_quran_preferences
+    # ──────────────────────────────────────────────────────────────
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_quran_preferences (
+        user_id       BIGINT  NOT NULL,
+        feature       TEXT    NOT NULL,
+        with_tashkeel BOOLEAN NOT NULL DEFAULT TRUE,
+        PRIMARY KEY (user_id, feature)
+    )
+    """)
+
     conn.commit()

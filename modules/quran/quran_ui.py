@@ -11,29 +11,33 @@ _G = "su"  # أخضر
 _R = "d"   # أحمر
 
 
-def build_ayah_text(ayah: dict, total: int) -> str:
+def build_ayah_text(ayah: dict, total: int, with_tashkeel: bool = True) -> str:
     """يبني نص عرض الآية."""
+    from modules.quran.tashkeel_pref import apply_pref
 
     sura = db.get_sura(ayah["sura_id"])
     sura_name = sura["name"] if sura else f"سورة {ayah['sura_id']}"
-    
+    ayah_text = apply_pref(ayah["text_with_tashkeel"], with_tashkeel)
+
     return (
         f"📖 <b>{sura_name}</b>\n"
         f"‏━━━━━━━━\n\n"
-        f"{ayah['text_with_tashkeel']} {format_ayah_number(ayah['ayah_number'])}\n\n"
+        f"{ayah_text} {format_ayah_number(ayah['ayah_number'])}\n\n"
         f"‏━━━━━━━━━━\n"
         f"<tg-spoiler><i>آية {ayah['id']} من {total}</i></tg-spoiler>"
     )
 
 def build_ayah_buttons(uid: int, cid: int, ayah: dict,
                        is_fav: bool, has_prev: bool, has_next: bool,
-                       source: str = None, fav_page: int = 0) -> tuple[list, list]:
+                       source: str = None, fav_page: int = 0,
+                       with_tashkeel: bool = True) -> tuple[list, list]:
     """يبني أزرار عرض الآية."""
     owner = (uid, cid)
     aid   = ayah["id"]
+    wt    = 1 if with_tashkeel else 0
 
     # بيانات السياق لتمريرها لأزرار التنقل
-    ctx = {"aid": aid}
+    ctx = {"aid": aid, "wt": wt}
     if source:
         ctx["src"] = source
         ctx["fp"]  = fav_page
@@ -45,15 +49,15 @@ def build_ayah_buttons(uid: int, cid: int, ayah: dict,
         nav.append(btn("➡️ السابقة", "qr_prev", ctx, color=_B, owner=owner))
 
     fav_label = "💛 إزالة من المفضلة" if is_fav else "⭐️ المفضلة"
-    fav_ctx   = {"aid": aid}
+    fav_ctx   = {"aid": aid, "wt": wt}
     if source:
         fav_ctx["src"] = source
         fav_ctx["fp"]  = fav_page
 
     action_row = [
-        btn("📖 تفسير", "qr_tafseer", {"aid": aid, **({"src": source, "fp": fav_page} if source else {})}, color=_B, owner=owner),
-        btn(fav_label,  "qr_fav",     fav_ctx,                                                              color=_G, owner=owner),
-        btn("❌ إغلاق", "qr_close",   {},                                                                   color=_R, owner=owner),
+        btn("📖 تفسير", "qr_tafseer", {"aid": aid, "wt": wt, **({"src": source, "fp": fav_page} if source else {})}, color=_B, owner=owner),
+        btn(fav_label,  "qr_fav",     fav_ctx,                                                                         color=_G, owner=owner),
+        btn("❌ إغلاق", "qr_close",   {},                                                                              color=_R, owner=owner),
     ]
 
     buttons = nav + action_row
@@ -69,10 +73,12 @@ def build_ayah_buttons(uid: int, cid: int, ayah: dict,
 
 
 def build_tafseer_buttons(uid: int, cid: int, ayah: dict,
-                          source: str = None, fav_page: int = 0) -> tuple[list, list]:
+                          source: str = None, fav_page: int = 0,
+                          with_tashkeel: bool = True) -> tuple[list, list]:
     """يبني أزرار اختيار التفسير."""
     owner     = (uid, cid)
     aid       = ayah["id"]
+    wt        = 1 if with_tashkeel else 0
     available = get_available_tafseer(ayah)
 
     if not available:
@@ -80,12 +86,12 @@ def build_tafseer_buttons(uid: int, cid: int, ayah: dict,
 
     tafseer_buttons = [
         btn(name_ar, "qr_show_tafseer",
-            {"aid": aid, "col": col, **({"src": source, "fp": fav_page} if source else {})},
+            {"aid": aid, "col": col, "wt": wt, **({"src": source, "fp": fav_page} if source else {})},
             color=_B, owner=owner)
         for name_ar, col in available
     ]
 
-    back_ctx = {"aid": aid}
+    back_ctx = {"aid": aid, "wt": wt}
     if source:
         back_ctx["src"] = source
         back_ctx["fp"]  = fav_page
@@ -104,8 +110,11 @@ def build_tafseer_buttons(uid: int, cid: int, ayah: dict,
 
 def build_search_result_text(results: list[dict], page: int, total_pages: int,
                              query: str = "", ayat_count: int = 0,
-                             total_occurrences: int = 0) -> str:
+                             total_occurrences: int = 0,
+                             with_tashkeel: bool = True) -> str:
     """يبني نص نتائج البحث مع إحصائيات."""
+    from modules.quran.tashkeel_pref import apply_pref
+
     text = (
         f"🔎 <b>نتائج البحث عن:</b> «{query}»\n"
         f"📊 وُجد في <b>{ayat_count}</b> آية "
@@ -115,9 +124,10 @@ def build_search_result_text(results: list[dict], page: int, total_pages: int,
     for r in results:
         sura = db.get_sura(r["sura_id"])
         sura_name = sura["name"] if sura else f"سورة {r['sura_id']}"
+        ayah_text = apply_pref(r["text_with_tashkeel"], with_tashkeel)
         text += (
             f"📖 <b>{sura_name}</b>\n\n"
-            f"{r['text_with_tashkeel']} {format_ayah_number(r['ayah_number'])}\n\n"
+            f"{ayah_text} {format_ayah_number(r['ayah_number'])}\n\n"
         )
     if total_pages > 1:
         text += f"<i>صفحة {page+1} من {total_pages}</i>"
@@ -170,15 +180,18 @@ def build_search_buttons(uid: int, cid: int, query: str,
 
     return buttons, layout
 
-def build_favorites_text(favs: list[dict], page: int, total_pages: int) -> str:
+def build_favorites_text(favs: list[dict], page: int, total_pages: int,
+                         with_tashkeel: bool = True) -> str:
+    from modules.quran.tashkeel_pref import apply_pref
 
     text = f"⭐️ <b>مفضلتي</b> ({page+1}/{total_pages})\n{get_lines()}\n\n"
     for f in favs:
         sura = db.get_sura(f["sura_id"])
         sura_name = sura["name"] if sura else f"سورة {f['sura_id']}"
+        ayah_text = apply_pref(f["text_with_tashkeel"], with_tashkeel)
         text += (
             f"📖 <b>{sura_name}</b>\n\n"
-            f"{f['text_with_tashkeel']} {format_ayah_number(f['ayah_number'])}\n\n"
+            f"{ayah_text} {format_ayah_number(f['ayah_number'])}\n\n"
         )
     return text
 

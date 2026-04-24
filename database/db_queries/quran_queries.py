@@ -719,3 +719,43 @@ def check_new_achievements(user_id: int) -> list[str]:
         cur.close()
 
     return new_ones
+
+
+# ══════════════════════════════════════════
+# تفضيلات التشكيل
+# ══════════════════════════════════════════
+
+# Valid feature keys
+_PREF_FEATURES = {"khatma", "surah_read", "ayah_search"}
+
+
+def get_quran_pref(user_id: int, feature: str) -> bool:
+    """
+    Returns the user's tashkeel preference for a feature.
+    Default: True (with tashkeel).
+    feature: one of 'khatma' | 'surah_read' | 'ayah_search'
+    """
+    row = db_fetchone(
+        "SELECT with_tashkeel FROM user_quran_preferences "
+        "WHERE user_id = %s AND feature = %s",
+        (user_id, feature),
+    )
+    return row["with_tashkeel"] if row else True
+
+
+def set_quran_pref(user_id: int, feature: str, with_tashkeel: bool) -> None:
+    """
+    Saves the user's tashkeel preference for a feature.
+    feature: one of 'khatma' | 'surah_read' | 'ayah_search'
+    """
+    if feature not in _PREF_FEATURES:
+        return
+    db_execute(
+        """
+        INSERT INTO user_quran_preferences (user_id, feature, with_tashkeel)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (user_id, feature) DO UPDATE SET
+            with_tashkeel = EXCLUDED.with_tashkeel
+        """,
+        (user_id, feature, with_tashkeel),
+    )

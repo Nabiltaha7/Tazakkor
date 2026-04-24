@@ -18,8 +18,18 @@ System B: Fixed-time azkar reminders per group.
 
 Duplicate prevention:
   _sent_log: dict[(group_id, col, "YYYY-MM-DD")] → True
-  One send per group per type per calendar day (Yemen date).
+  Key uses the group's own local date (derived from its tz_offset), so groups
+  in different timezones each get their own independent day boundary.
+  Marked sent ONLY after a confirmed successful delivery.
+
+Pin tracking:
+  _pinned: dict[group_id] → message_id (int)
+  Stored in memory only — no DB column needed.
+  One shared slot per group across all four azkar categories.
+  Before each send: unpin previous (if any), then pin new message.
 """
+import traceback
+
 from core.bot import bot
 from database.db_queries.groups_queries import get_groups_with_reminder
 from utils.pagination import btn, register_action, edit_ui, send_ui
@@ -39,25 +49,45 @@ _REMINDER_TYPES = [
 
 _ICONS = {0: "🌅", 1: "🌙", 2: "😴", 3: "☀️"}
 
-# ── Sent-log: one send per group per type per calendar day ────────────────────
-# Key: (group_id, col, "YYYY-MM-DD")
+# ── Sent-log: one confirmed send per group per type per local calendar day ────
+# Key: (group_id, col, "YYYY-MM-DD") where the date is in the group's own timezone.
+# Only set AFTER a successful send — a failed send is retried next hour.
 _sent_log: dict[tuple, bool] = {}
 
+# ── In-memory pin tracker: group_id → last pinned message_id ─────────────────
+# One slot per group, shared across all four azkar categories.
+# Reset to None after unpinning. Never persisted to DB.
+_pinned: dict[int, int] = {}
 
-def _sent_key(group_id: int, col: str) -> tuple:
-    """Generates a dedup key scoped to today's Yemen date."""
+
+def _local_date_for_group(tz_minutes: int) -> str:
+    """
+    Returns today's date string in the group's own timezone.
+    tz_minutes: the group's tz_offset (e.g. 180 for UTC+3, 330 for UTC+5:30).
+    Using the group's local date ensures groups in different timezones each
+    get an independent day boundary for dedup.
+    """
     from datetime import datetime, timezone, timedelta
-    _YEMEN_TZ = timezone(timedelta(hours=3))
-    date_str  = datetime.now(_YEMEN_TZ).strftime("%Y-%m-%d")
-    return (group_id, col, date_str)
+    group_tz = timezone(timedelta(minutes=tz_minutes))
+    return datetime.now(group_tz).strftime("%Y-%m-%d")
+
+
+def _sent_key(group_id: int, col: str, tz_minutes: int) -> tuple:
+    """Generates a dedup key scoped to the group's own local date."""
+    return (group_id, col, _local_date_for_group(tz_minutes))
 
 
 def _prune_sent_log() -> None:
-    """Removes entries from previous days."""
-    from datetime import datetime, timezone, timedelta
-    _YEMEN_TZ   = timezone(timedelta(hours=3))
-    today       = datetime.now(_YEMEN_TZ).strftime("%Y-%m-%d")
-    stale = [k for k in _sent_log if k[2] != today]
+    """
+    Removes stale entries from _sent_log.
+    An entry is stale when its stored date no longer matches the group's
+    current local date. We approximate this by dropping any entry whose
+    date is earlier than today in UTC — safe because UTC is always behind
+    or equal to any positive-offset timezone.
+    """
+    from datetime import datetime, timezone
+    utc_today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    stale = [k for k in _sent_log if k[2] < utc_today]
     for k in stale:
         del _sent_log[k]
 
@@ -69,10 +99,9 @@ def _prune_sent_log() -> None:
 def fire_group_azkar_reminders(utc_hour: int, utc_minute: int = 0) -> None:
     """
     Called once per UTC hour by the HourlyScheduler.
-    Sends azkar reminders to groups whose configured local hour matches now.
-
-    utc_minute is accepted for backward-compat but ignored — reminders are
-    hour-only and the hourly scheduler always fires at :00.
+    Iterates ALL four azkar types and ALL groups for each type.
+    One group failure never stops the others — every group gets its own
+    isolated try/except at the send level.
     """
     _prune_sent_log()
 
@@ -80,49 +109,91 @@ def fire_group_azkar_reminders(utc_hour: int, utc_minute: int = 0) -> None:
         try:
             _fire_type(col, zikr_type, label, command, utc_hour)
         except Exception as e:
-            import traceback
-            print(f"[AZKAR_CHECK] ❌ Error processing {col}: {e}")
+            print(f"[AZKAR_CHECK] ❌ Error processing type {col}: {e}")
             traceback.print_exc()
 
 
 def _fire_type(col: str, zikr_type: int, label: str, command: str,
                utc_hour: int) -> None:
-    """Checks all groups for a single azkar type and sends if due."""
-    groups = get_groups_with_reminder(col)
+    """
+    Checks ALL groups for a single azkar type and sends to each matching group.
+    Never breaks or returns early — every group in the list is evaluated.
+    Per-group errors are caught and logged without stopping the loop.
+    """
+    try:
+        groups = get_groups_with_reminder(col)
+    except Exception as e:
+        print(f"[AZKAR_CHECK] ❌ DB error fetching groups for {col}: {e}")
+        return
+
     if not groups:
         return
 
+    print(f"[AZKAR_CHECK] {col}: checking {len(groups)} group(s) at UTC={utc_hour:02d}:00")
+
+    sent_count    = 0
+    skipped_count = 0
+    failed_count  = 0
+
     for g in groups:
-        group_id          = g["group_id"]
-        tz_minutes        = g.get("tz_offset") or 180
-        target_local_hour = g["hour"]   # hour admin configured (local time)
+        try:
+            group_id          = g["group_id"]
+            tz_minutes        = int(g.get("tz_offset") or 180)
+            target_local_hour = int(g["hour"])   # hour admin configured (local time)
 
-        # Convert target local hour → expected UTC hour
-        expected_utc_hour = (target_local_hour * 60 - tz_minutes) % (24 * 60) // 60
+            # Convert target local hour → expected UTC hour
+            # Formula: UTC = (local_hour * 60 - tz_offset_minutes) mod 1440, then ÷ 60
+            expected_utc_hour = (target_local_hour * 60 - tz_minutes) % (24 * 60) // 60
 
-        if utc_hour != expected_utc_hour:
-            continue
+            if utc_hour != expected_utc_hour:
+                continue
 
-        # Dedup: only send once per day per group per type
-        key = _sent_key(group_id, col)
-        if key in _sent_log:
-            print(f"[AZKAR_SKIPPED] group={group_id} col={col} — already sent today")
-            continue
+            # Dedup: only send once per local calendar day per group per type
+            key = _sent_key(group_id, col, tz_minutes)
+            if key in _sent_log:
+                print(f"[AZKAR_SKIPPED] group={group_id} col={col} — already sent today")
+                skipped_count += 1
+                continue
 
-        print(f"[AZKAR_MATCH] group={group_id} col={col} "
-              f"local={target_local_hour:02d}:00 (UTC={utc_hour:02d}:00) — sending {label}")
+            print(f"[AZKAR_MATCH] group={group_id} col={col} "
+                  f"local={target_local_hour:02d}:00 (UTC={utc_hour:02d}:00) — sending {label}")
 
-        _sent_log[key] = True
-        _send_reminder_message(group_id, zikr_type, label, command)
+            # Send first — only mark as sent after confirmed delivery
+            success = _send_reminder_message(group_id, zikr_type, label, command)
+            if success:
+                _sent_log[key] = True
+                sent_count += 1
+            else:
+                # Send failed — do NOT mark as sent so it can retry next hour
+                failed_count += 1
+
+        except Exception as e:
+            failed_count += 1
+            print(f"[AZKAR_CHECK] ❌ Unexpected error for group "
+                  f"{g.get('group_id', '?')} col={col}: {e}")
+            traceback.print_exc()
+
+    if sent_count or failed_count:
+        print(f"[AZKAR_CHECK] {col} done — "
+              f"✅ sent={sent_count}  ⏭ skipped={skipped_count}  ❌ failed={failed_count}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Message sender
+# Message sender — returns True on success, False on failure
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _send_reminder_message(tg_group_id: int, zikr_type: int,
-                            label: str, command: str) -> None:
-    """Sends the azkar reminder message to a group with a deep-link button."""
+                            label: str, command: str) -> bool:
+    """
+    Sends the azkar reminder message to a group with a deep-link button.
+    Returns True if the message was sent successfully, False otherwise.
+    Caller uses the return value to decide whether to mark the group as sent.
+
+    Pin behavior:
+      - Unpins the previous azkar message for this group (any category).
+      - Pins the new message.
+      - Tracks the pinned message_id in _pinned (in-memory, no DB).
+    """
     icon = _ICONS.get(zikr_type, "📿")
     text = (
         f"{icon} <b>حان وقت {label}</b>\n\n"
@@ -140,6 +211,15 @@ def _send_reminder_message(tg_group_id: int, zikr_type: int,
     except Exception as e:
         print(f"[AZKAR_SENT] ⚠️ Could not build button for group {tg_group_id}: {e}")
 
+    # ── Unpin previous azkar message (any category) ───────────────────────────
+    prev_msg_id = _pinned.get(tg_group_id)
+    if prev_msg_id:
+        try:
+            bot.unpin_chat_message(tg_group_id, prev_msg_id)
+        except Exception:
+            pass  # already deleted, already unpinned, or no permission — safe
+        _pinned.pop(tg_group_id, None)
+
     try:
         sent = bot.send_message(
             tg_group_id, text,
@@ -148,15 +228,19 @@ def _send_reminder_message(tg_group_id: int, zikr_type: int,
         )
         print(f"[AZKAR_SENT] ✅ group={tg_group_id} type={zikr_type} ({label})")
 
-        # Attempt to pin — silent fail if no permission
+        # ── Pin new message and store its ID in memory ────────────────────────
         try:
             bot.pin_chat_message(tg_group_id, sent.message_id,
                                  disable_notification=True)
+            _pinned[tg_group_id] = sent.message_id
         except Exception:
-            pass
+            pass  # no pin permission — don't crash, just skip tracking
+
+        return True  # confirmed delivery
 
     except Exception as e:
         print(f"[AZKAR_SENT] ❌ group={tg_group_id} type={zikr_type} — {e}")
+        return False  # send failed — caller will NOT mark as sent
 
 
 # ══════════════════════════════════════════════════════════════════════════════
