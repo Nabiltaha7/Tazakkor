@@ -72,6 +72,7 @@ def _safe_run(fn, *args) -> None:
 # ── Friday Surah Al-Kahf reminder ────────────────────────────────
 
 _kahf_last_sent_date: str = ""   # "YYYY-MM-DD" of the last Friday we sent
+_kahf_pinned: dict[int, int] = {}  # group_id → last pinned Kahf message_id
 
 _KAHF_MESSAGE = (
     "📖 <b>تذكير بفضل سورة الكهف</b>\n"
@@ -141,19 +142,29 @@ def _do_send_kahf_reminder() -> None:
 
     for group_id in group_ids:
         try:
+            # ── Unpin previous Kahf message for this group ────────────────
+            prev_msg_id = _kahf_pinned.get(group_id)
+            if prev_msg_id:
+                try:
+                    bot.unpin_chat_message(group_id, prev_msg_id)
+                except Exception:
+                    pass  # already deleted, already unpinned, or no permission
+                _kahf_pinned.pop(group_id, None)
+
             sent_msg = bot.send_message(
                 group_id,
                 _KAHF_MESSAGE,
                 parse_mode="HTML"
             )
 
-            # تثبيت الرسالة
+            # ── Pin new message and track its ID ──────────────────────────
             try:
                 bot.pin_chat_message(
                     group_id,
                     sent_msg.message_id,
                     disable_notification=True
                 )
+                _kahf_pinned[group_id] = sent_msg.message_id
             except Exception as e:
                 print(f"[KAHF_PIN] ⚠️ group={group_id}: {e}")
 

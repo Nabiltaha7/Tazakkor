@@ -43,8 +43,6 @@ def on_ticket_confirm(call, data):
 
     ok, ticket_id = confirm_and_send_ticket(user_id, chat_id)
     if not ok:
-        from utils.pagination.buttons import build_keyboard
-        from utils.pagination import btn
         try:
             bot.edit_message_text(
                 "⚠️ انتهت صلاحية التذكرة. أرسل تذكرة جديدة.",
@@ -54,46 +52,16 @@ def on_ticket_confirm(call, data):
             pass
         return
 
-    # ── حذف رسالة التأكيد ──
+    # ── تعديل رسالة التأكيد بدلاً من حذفها ──
     try:
-        bot.delete_message(chat_id, call.message.message_id)
+        bot.edit_message_text(
+            "تم إرسال التذكرة للمطورين وسيتم الرد عليك قريبًا إن شاء الله",
+            chat_id, call.message.message_id,
+            parse_mode="HTML",
+            reply_markup=None,
+        )
     except Exception:
         pass
-
-    # ── بناء رسالة التأكيد النهائية ──
-    from utils.pagination.buttons import build_keyboard
-    from utils.keyboards import ui_btn
-
-    bot_username = get_bot_username()
-    cat_label    = CATEGORIES.get(
-        # نجلب الفئة من التذكرة المُنشأة
-        (get_ticket(ticket_id) or {}).get("category", "bug"),
-        "🎫 تذكرة"
-    )
-
-    caption = (
-        f"🎫 <b>رقم التذكرة: #{ticket_id}</b>\n\n"
-        f"📂 النوع: {cat_label}\n\n"
-        f"📨 سيتم إرسال الرد إليك في <b>خاص البوت</b>.\n"
-        f"⚠️ إذا لم تكن قد راسلت البوت من قبل، اضغط الزر أدناه ثم اضغط <b>Start</b>."
-    )
-
-    buttons = []
-    if bot_username:
-        buttons.append(ui_btn("📩 فتح البوت", url=f"https://t.me/{bot_username}"))
-
-    markup   = build_keyboard(buttons, [1]) if buttons else None
-    photo_id = get_bot_photo_id()
-
-    try:
-        if photo_id:
-            bot.send_photo(chat_id, photo_id, caption=caption,
-                           parse_mode="HTML", reply_markup=markup)
-        else:
-            bot.send_message(chat_id, caption,
-                             parse_mode="HTML", reply_markup=markup)
-    except Exception as e:
-        print(f"[Tickets] خطأ إرسال تأكيد التذكرة: {e}")
 
 
 @register_action("ticket_cancel_send")

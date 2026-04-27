@@ -67,16 +67,14 @@ def _send_group_link(message) -> None:
 
     if invite_link:
         text   = (
-            f"🔗 <b>رابط المجموعة</b>\n\n"
-            f"👤 الطالب: {sender_line}\n"
+            f"🔗 '{sender_line}' <b>رابط المجموعة</b>\n\n"
             f"👥 المجموعة: <b>{group_name}</b>\n\n"
             f"<code>{invite_link}</code>"
         )
         markup = build_keyboard([ui_btn("🔗 رابط المجموعة", url=invite_link)], [1])
     else:
         text = (
-            f"⚠️ تعذّر جلب رابط المجموعة.\n\n"
-            f"👤 الطالب: {sender_line}\n"
+            f"⚠️ '{sender_line}' تعذّر جلب رابط المجموعة. \n\n"
             f"👥 المجموعة: <b>{group_name}</b>\n\n"
             f"تأكد أن البوت يملك صلاحية <b>دعوة المستخدمين</b>."
         )

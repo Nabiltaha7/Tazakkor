@@ -302,7 +302,7 @@ _TYPE_LABELS = {
     3: ("☀️", "أذكار الاستيقاظ"),
 }
 
-_MAX_REMINDERS = 3
+_MAX_REMINDERS = 4
 
 
 def handle_reminder_command(message) -> bool:
