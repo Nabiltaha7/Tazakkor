@@ -55,8 +55,9 @@ def _safe_run(fn, *args) -> None:
     try:
         fn(*args)
     except Exception as e:
-        err = str(e)
-        if "no such table" in err or "no such column" in err:
+        err = str(e).lower()
+        # PostgreSQL raises "relation ... does not exist" for missing tables/columns
+        if "does not exist" in err or "undefined_table" in err or "undefined_column" in err:
             print(f"⚠️ [daily_tasks] skipping {fn.__name__} (table/column missing)")
         else:
             import traceback

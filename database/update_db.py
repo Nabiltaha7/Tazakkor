@@ -1,12 +1,12 @@
 """
 database/update_db.py
 ──────────────────────
-Database migration runner — applied once at startup.
+Schema migration runner — applied once at startup after init_db().
 
-Migrations here handle schema changes on existing databases that
-CREATE TABLE IF NOT EXISTS cannot handle (drops, renames, etc.).
+Handles changes that CREATE TABLE IF NOT EXISTS cannot cover:
+table drops, column renames, index removals, etc.
 
-PostgreSQL compatible — no SQLite-specific syntax.
+Called from main.py after create_all_tables().
 """
 from database.connection import get_db_conn, db_execute
 

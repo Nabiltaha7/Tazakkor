@@ -11,13 +11,17 @@ Public API:
   close_db_conn() → closes the current thread's connection
   db_write(func, *args, **kwargs) → serialized write with retry
 
-SQL conventions:
-  - Use %s for all placeholders (PostgreSQL standard)
-  - Use SERIAL PRIMARY KEY instead of INTEGER PRIMARY KEY AUTOINCREMENT
-  - Use EXTRACT(EPOCH FROM NOW())::INTEGER instead of strftime('%s','now')
-  - Use NOW() instead of datetime('now')
-  - Use INSERT ... ON CONFLICT DO NOTHING instead of INSERT OR IGNORE
-  - Use INSERT ... ON CONFLICT (...) DO UPDATE SET instead of INSERT OR REPLACE
+Schema source of truth:
+  database/db_scheme/*.py  — table definitions (CREATE TABLE IF NOT EXISTS)
+  database/init_db.py      — orchestrates creation in FK-safe order
+
+SQL conventions (PostgreSQL):
+  - Placeholders  : %s
+  - Auto-increment: SERIAL PRIMARY KEY
+  - Epoch time    : EXTRACT(EPOCH FROM NOW())::INTEGER
+  - Current time  : NOW()
+  - Upsert        : INSERT ... ON CONFLICT DO NOTHING
+                    INSERT ... ON CONFLICT (...) DO UPDATE SET
 """
 import threading
 import time
@@ -39,7 +43,7 @@ def _new_conn():
     """Opens a new psycopg2 connection to the Supabase PostgreSQL database."""
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = False
-    # RealDictCursor makes rows behave like dicts — consistent with sqlite3.Row
+    # RealDictCursor makes rows behave like dicts (key-based access)
     conn.cursor_factory = psycopg2.extras.RealDictCursor
     return conn
 

@@ -16,6 +16,7 @@ Tables:
   - khatma_reminders         : تذكيرات الختمة
   - khatma_counted_ayat      : منع تكرار احتساب الآية في نفس اليوم
   - khatma_achievements_seen : الإنجازات التي شاهدها المستخدم
+  - user_quran_preferences   : تفضيلات التشكيل لكل مستخدم وميزة
 """
 from database.connection import get_db_conn
 
@@ -29,7 +30,7 @@ def create_quran_tables() -> None:
     # ──────────────────────────────────────────────────────────────
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS suras (
-        id   INTEGER PRIMARY KEY,
+        id   INTEGER PRIMARY KEY,  -- fixed sura IDs 1–114, not auto-generated
         name TEXT    NOT NULL UNIQUE
     )
     """)

@@ -6,11 +6,12 @@ Bot entry point.
 Startup sequence:
   1. sys.path setup (must be first)
   2. Logging config
-  3. DB schema init (PostgreSQL / Supabase)
-  4. Schema migrations
-  5. Scheduler registration
-  6. keep_alive (Flask health-check thread)
-  7. Bot polling loop
+  3. DB schema init — db_scheme/*.py via init_db()
+  4. Schema migrations — update_db.py
+  5. Config sync — load bot_constants into memory
+  6. Scheduler registration
+  7. keep_alive (Flask health-check thread)
+  8. Bot polling loop
 """
 import sys
 import os
@@ -100,7 +101,7 @@ if __name__ == "__main__":
     if IS_TEST:
         print("🧪 TEST MODE active")
 
-    # 1. Create all tables (PostgreSQL — no file creation needed)
+    # 1. Create all tables via db_scheme/*.py (PostgreSQL)
     create_all_tables()
 
     # 2. Apply schema migrations (drops, renames, etc.)
@@ -114,9 +115,9 @@ if __name__ == "__main__":
     from database.daily_tasks import run_daily_tasks
     run_daily_tasks()
 
-    # 4. Start Flask keep-alive thread
+    # 5. Start Flask keep-alive thread
     from web.app import keep_alive
     keep_alive()
 
-    # 5. Start polling
+    # 6. Start polling
     start_bot()

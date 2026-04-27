@@ -11,7 +11,8 @@ Table creation order (respects foreign key dependencies):
   3. azkar_tables    — azkar, azkar_progress,
                        azkar_reminders, azkar_content (→ users)
   4. quran_tables    — suras, ayat, khatma_*,
-                       user_quran_progress, ...       (→ users)
+                       user_quran_progress, user_favorites,
+                       surah_read_progress, user_quran_preferences (→ suras/ayat)
   5. reports_tables  — bot_constants, bot_developers,
                        tickets, ticket_*              (→ users)
 """

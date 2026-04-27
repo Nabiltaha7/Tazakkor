@@ -1,3 +1,11 @@
+"""
+database/db_scheme/groups_tables.py
+─────────────────────────────────────
+جدول المجموعات — PostgreSQL
+
+Tables:
+  - groups : المجموعات المسجلة مع إعدادات الأذكار والتوقيت
+"""
 from database.connection import get_db_conn
 
 
